@@ -14,7 +14,7 @@ namespace Multiverse
 	public sealed class PortalPacketBuffered : PortalPacket
 	{
 		public PortalPacketBuffered(byte[] buffer)
-			: base(buffer[0], buffer.Length)
+			: base(buffer[0], (ushort)buffer.Length)
 		{
 			Stream.Position = 0;
 

@@ -32,8 +32,8 @@ namespace Multiverse
 
 		public static string AuthKey { get; set; }
 
-		public static short ServerID { get; set; }
-		public static short ClientID { get; set; }
+		public static ushort ServerID { get; set; }
+		public static ushort ClientID { get; set; }
 
 		public static PortalContext Context { get; set; }
 
@@ -199,7 +199,7 @@ namespace Multiverse
 			Start();
 		}
 
-		public static bool CanList(int serverID)
+		public static bool CanList(ushort serverID)
 		{
 			if (!IsEnabled || !IsAlive)
 			{
@@ -224,12 +224,12 @@ namespace Multiverse
 			return IsAlive && Transport.Send(p);
 		}
 
-		public static bool SendTarget(PortalPacket p, int targetID)
+		public static bool SendTarget(PortalPacket p, ushort targetID)
 		{
 			return IsAlive && Transport.SendTarget(p, targetID);
 		}
 
-		public static bool SendExcept(PortalPacket p, int exceptID)
+		public static bool SendExcept(PortalPacket p, ushort exceptID)
 		{
 			return IsAlive && Transport.SendExcept(p, exceptID);
 		}
@@ -239,12 +239,12 @@ namespace Multiverse
 			return IsAlive && Transport.Send(p, getResponse);
 		}
 
-		public static bool SendTarget(PortalPacket p, int targetID, bool getResponse)
+		public static bool SendTarget(PortalPacket p, ushort targetID, bool getResponse)
 		{
 			return IsAlive && Transport.SendTarget(p, targetID, getResponse);
 		}
 
-		public static bool SendExcept(PortalPacket p, int exceptID, bool getResponse)
+		public static bool SendExcept(PortalPacket p, ushort exceptID, bool getResponse)
 		{
 			return IsAlive && Transport.SendExcept(p, exceptID, getResponse);
 		}
@@ -358,6 +358,16 @@ namespace Multiverse
 		public static int Random()
 		{
 			return _Random.Next();
+		}
+
+		public static ushort Random(ushort value)
+		{
+			return (ushort)_Random.Next(value);
+		}
+
+		public static ushort RandomMinMax(ushort min, ushort max)
+		{
+			return (ushort)_Random.Next(min, max + 1);
 		}
 
 		public static short Random(short value)

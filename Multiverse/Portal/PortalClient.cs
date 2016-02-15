@@ -22,13 +22,15 @@ namespace Multiverse
 {
 	public sealed class PortalClient : PortalTransport
 	{
+		private readonly AutoResetEvent _ReceiveSync = new AutoResetEvent(true);
+
 		private readonly object _SendLock = new object();
 
 		private readonly IPEndPoint _EndPoint;
 
 		private long _NextAliveCheck;
 
-		private volatile int _ServerID;
+		private ushort? _ServerID;
 
 		private readonly bool _IsLocalClient;
 		private readonly bool _IsRemoteClient;
@@ -40,9 +42,9 @@ namespace Multiverse
 
 		public override Socket Socket { get { return _Client; } }
 
-		public Dictionary<int, PortalPacketHandler> Handlers { get; private set; }
+		public Dictionary<byte, PortalPacketHandler> Handlers { get; private set; }
 
-		public int ServerID { get { return _ServerID; } }
+		public ushort ServerID { get { return _ServerID ?? UInt16.MaxValue; } }
 
 		public bool IsLocalClient { get { return _IsLocalClient; } }
 		public bool IsRemoteClient { get { return _IsRemoteClient; } }
@@ -55,10 +57,10 @@ namespace Multiverse
 		{ }
 
 		public PortalClient(Socket client)
-			: this(client, -1, true)
+			: this(client, null, true)
 		{ }
 
-		private PortalClient(Socket client, int serverID, bool remote)
+		private PortalClient(Socket client, ushort? serverID, bool remote)
 		{
 			_Client = client;
 
@@ -78,12 +80,12 @@ namespace Multiverse
 
 			_EndPoint = (IPEndPoint)ep;
 
-			Handlers = new Dictionary<int, PortalPacketHandler>();
+			Handlers = new Dictionary<byte, PortalPacketHandler>();
 
 			PortalPacketHandlers.RegisterHandlers(this);
 		}
 
-		public PortalPacketHandler Register(int id, int length, PortalContext context, PortalReceive onReceive)
+		public PortalPacketHandler Register(byte id, ushort length, PortalContext context, PortalReceive onReceive)
 		{
 			lock (((ICollection)Handlers).SyncRoot)
 			{
@@ -182,8 +184,6 @@ namespace Multiverse
 			}
 		}
 
-		private readonly AutoResetEvent _ReceiveSync = new AutoResetEvent(true);
-
 		private void Receive()
 		{
 			_ReceiveSync.WaitOne();
@@ -192,7 +192,7 @@ namespace Multiverse
 
 			var size = buffer.Length;
 
-			while (size > 0 && _Client != null /* && _Client.Poll(-1, SelectMode.SelectRead)*/)
+			while (size > 0 && _Client != null)
 			{
 				size -= _Client.Receive(buffer, buffer.Length - size, size, SocketFlags.Peek);
 
@@ -214,17 +214,17 @@ namespace Multiverse
 				return;
 			}
 
-			var pid = (int)buffer[0];
-			var sid = (int)BitConverter.ToInt16(buffer, 1);
+			var pid = buffer[0];
+			var sid = BitConverter.ToUInt16(buffer, 1);
 
-			if (_IsRemoteClient && _ServerID == -1)
+			if (!_ServerID.HasValue)
 			{
 				_ServerID = sid;
 
 				ToConsole("Recv: Server ID Assigned ({0})", _ServerID);
 			}
 
-			size = BitConverter.ToInt16(buffer, 3);
+			size = BitConverter.ToUInt16(buffer, 3);
 
 			if (size < PortalPacket.MinSize || size > PortalPacket.MaxSize)
 			{
@@ -245,7 +245,7 @@ namespace Multiverse
 
 			if (size > 0)
 			{
-				while (size > 0 && _Client != null /* && _Client.Poll(-1, SelectMode.SelectRead)*/)
+				while (size > 0 && _Client != null)
 				{
 					size -= _Client.Receive(buffer, buffer.Length - size, size, SocketFlags.None);
 
@@ -298,7 +298,7 @@ namespace Multiverse
 				return;
 			}
 
-			var pid = (int)buffer[0];
+			var pid = buffer[0];
 
 			PortalPacketHandler handler;
 
@@ -342,12 +342,12 @@ namespace Multiverse
 			return CheckAlive() && InternalSend(p, getResponse);
 		}
 
-		public override bool SendTarget(PortalPacket p, int targetID, bool getResponse)
+		public override bool SendTarget(PortalPacket p, ushort targetID, bool getResponse)
 		{
 			return CheckAlive() && _ServerID == targetID && InternalSend(p, getResponse);
 		}
 
-		public override bool SendExcept(PortalPacket p, int exceptID, bool getResponse)
+		public override bool SendExcept(PortalPacket p, ushort exceptID, bool getResponse)
 		{
 			return CheckAlive() && _ServerID != exceptID && InternalSend(p, getResponse);
 		}

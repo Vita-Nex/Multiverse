@@ -29,13 +29,13 @@ namespace Multiverse
 		private static readonly Type _TypeOfLong = typeof(Int64);
 		private static readonly Type _TypeOfULong = typeof(UInt64);
 
-		public int PacketID { get; private set; }
-		public int ClientID { get; private set; }
+		public byte PacketID { get; private set; }
+		public ushort ClientID { get; private set; }
 
-		public int Length { get { return (int)BaseStream.Length; } set { BaseStream.SetLength(value); } }
-		public int Position { get { return (int)BaseStream.Position; } set { BaseStream.Position = value; } }
+		public ushort Length { get { return (ushort)BaseStream.Length; } set { BaseStream.SetLength(value); } }
+		public ushort Position { get { return (ushort)BaseStream.Position; } set { BaseStream.Position = value; } }
 
-		public PortalPacketWriter(int id, int clientID, int length)
+		public PortalPacketWriter(byte id, ushort clientID, ushort length)
 			: base(new MemoryStream(length), Encoding.UTF8)
 		{
 			PacketID = id;
@@ -44,9 +44,9 @@ namespace Multiverse
 			Length = length;
 			Position = 0;
 
-			Write((byte)PacketID);
-			Write((short)ClientID);
-			Write((short)Length);
+			Write(PacketID);
+			Write(ClientID);
+			Write(Length);
 		}
 
 		public void Fill()
@@ -56,7 +56,7 @@ namespace Multiverse
 
 		public void Fill(int length)
 		{
-			var offset = Position + length;
+			var offset = (ushort)(Position + length);
 
 			if (offset > Length)
 			{
@@ -68,12 +68,12 @@ namespace Multiverse
 
 		public void FillRandom()
 		{
-			FillRandom(Position - Length);
+			FillRandom(Length - Position);
 		}
 
 		public void FillRandom(int length)
 		{
-			var offset = Position + length;
+			var offset = (ushort)(Position + length);
 
 			if (offset > Length)
 			{
@@ -88,7 +88,7 @@ namespace Multiverse
 
 		public void Write(DateTime date)
 		{
-			Write((short)date.Year);
+			Write((ushort)date.Year);
 			Write((byte)date.Month);
 			Write((byte)date.Day);
 			Write(date.TimeOfDay);

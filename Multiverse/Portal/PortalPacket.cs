@@ -17,24 +17,24 @@ namespace Multiverse
 {
 	public abstract class PortalPacket
 	{
-		public static int MinSize = 5;
-		public static int MaxSize = 2097152;
+		public static ushort MinSize = 5;
+		public static ushort MaxSize = 65535;
 
 		private static readonly byte[] _EmptyBuffer = new byte[0];
 
 		private volatile byte[] _Buffer;
 
-		public int ID { get; private set; }
-		public int ClientID { get; private set; }
-		public int Length { get; private set; }
+		public byte ID { get; private set; }
+		public ushort ClientID { get; private set; }
+		public ushort Length { get; private set; }
 
 		protected PortalPacketWriter Stream { get; private set; }
 
-		protected PortalPacket(int packetID)
+		protected PortalPacket(byte packetID)
 			: this(packetID, 0)
 		{ }
 
-		protected PortalPacket(int packetID, int length)
+		protected PortalPacket(byte packetID, ushort length)
 		{
 			ClientID = Portal.ClientID;
 
@@ -53,7 +53,7 @@ namespace Multiverse
 
 			if (Stream == null)
 			{
-				Console.WriteLine("{0}: {1}: Bad gateway packet! (Stream is null)", GetType().Name, ID);
+				Console.WriteLine("{0}: {1}: Bad Packet: Stream is null", GetType().Name, ID);
 
 				return _Buffer = _EmptyBuffer;
 			}
@@ -62,15 +62,15 @@ namespace Multiverse
 			{
 				if (Length == 0)
 				{
-					Stream.Position = MinSize - 2;
-					Stream.Write((short)Stream.Length);
+					Stream.Position = 3;
+					Stream.Write(Stream.Length);
 				}
 				else if (Stream.Length != Length)
 				{
 					var diff = Stream.Length - Length;
 
 					Console.WriteLine(
-						"{0}: {1}: Bad gateway packet length! ({2}{3} bytes)",
+						"{0}: {1}: Bad Packet Length: {2}{3} bytes",
 						GetType().Name,
 						ID,
 						diff > 0 ? "+" : String.Empty,

@@ -42,9 +42,9 @@ namespace Multiverse
 			return flag;
 		}
 
-		public int PacketID { get; private set; }
-		public int ServerID { get; private set; }
-		public int Length { get; private set; }
+		public byte PacketID { get; private set; }
+		public ushort ServerID { get; private set; }
+		public ushort Length { get; private set; }
 
 		public int Position { get { return (int)BaseStream.Position; } set { BaseStream.Position = value; } }
 
@@ -52,8 +52,8 @@ namespace Multiverse
 			: base(new MemoryStream(buffer, false), Encoding.UTF8)
 		{
 			PacketID = ReadByte();
-			ServerID = ReadInt16();
-			Length = ReadInt16();
+			ServerID = ReadUInt16();
+			Length = ReadUInt16();
 		}
 
 		public byte[] ReadToEnd()
@@ -63,7 +63,7 @@ namespace Multiverse
 
 		public DateTime ReadDateTime()
 		{
-			var year = ReadInt16();
+			var year = ReadUInt16();
 			var month = ReadByte();
 			var day = ReadByte();
 			var time = ReadTimeSpan();

@@ -13,13 +13,13 @@ namespace Multiverse
 {
 	public class PortalPacketHandler
 	{
-		public int ID { get; private set; }
-		public int Length { get; private set; }
+		public byte ID { get; private set; }
+		public ushort Length { get; private set; }
 		public PortalContext Context { get; private set; }
 
 		public PortalReceive OnReceive { get; set; }
 
-		public PortalPacketHandler(int packetID, int length, PortalContext context, PortalReceive onReceive)
+		public PortalPacketHandler(byte packetID, ushort length, PortalContext context, PortalReceive onReceive)
 		{
 			ID = packetID;
 			Length = length;

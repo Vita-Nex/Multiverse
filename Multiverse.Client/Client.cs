@@ -27,7 +27,7 @@ namespace Multiverse
 			Domain.Config();
 
 			Portal.ServerID = 0;
-			Portal.ClientID = Portal.RandomMinMax((short)1, Int16.MaxValue);
+			Portal.ClientID = (ushort)(Portal.Random(UInt16.MaxValue) + 1);
 
 			Portal.Server = new IPEndPoint(IPAddress.Loopback, 3593);
 

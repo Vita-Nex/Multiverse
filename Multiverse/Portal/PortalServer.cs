@@ -21,6 +21,7 @@ namespace Multiverse
 	public sealed class PortalServer : PortalTransport
 	{
 		private volatile List<PortalClient> _Clients = new List<PortalClient>();
+		
 		private readonly object _ClientsLock = new object();
 
 		public IEnumerable<PortalClient> Clients
@@ -56,7 +57,7 @@ namespace Multiverse
 			_Server = new Socket(Portal.Server.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 		}
 
-		public bool IsConnected(int serverID)
+		public bool IsConnected(ushort serverID)
 		{
 			if (Portal.ClientID == serverID)
 			{
@@ -180,7 +181,7 @@ namespace Multiverse
 			return any;
 		}
 
-		public override bool SendExcept(PortalPacket p, int exceptID, bool getResponse)
+		public override bool SendExcept(PortalPacket p, ushort exceptID, bool getResponse)
 		{
 			if (!CheckAlive())
 			{
@@ -210,7 +211,7 @@ namespace Multiverse
 			return any;
 		}
 
-		public override bool SendTarget(PortalPacket p, int targetID, bool getResponse)
+		public override bool SendTarget(PortalPacket p, ushort targetID, bool getResponse)
 		{
 			if (!CheckAlive())
 			{
