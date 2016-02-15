@@ -1,0 +1,32 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2012
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Multiverse", "Multiverse\Multiverse.csproj", "{05981900-DCCE-4EB7-AEFF-CE435A520295}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Multiverse.Server", "Multiverse.Server\Multiverse.Server.csproj", "{E717D00E-890D-4711-8BE5-DDCA454E198C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Multiverse.Client", "Multiverse.Client\Multiverse.Client.csproj", "{732BA6F9-3248-484B-B19F-072C34CD6661}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{05981900-DCCE-4EB7-AEFF-CE435A520295}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{05981900-DCCE-4EB7-AEFF-CE435A520295}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{05981900-DCCE-4EB7-AEFF-CE435A520295}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{05981900-DCCE-4EB7-AEFF-CE435A520295}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E717D00E-890D-4711-8BE5-DDCA454E198C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E717D00E-890D-4711-8BE5-DDCA454E198C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E717D00E-890D-4711-8BE5-DDCA454E198C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E717D00E-890D-4711-8BE5-DDCA454E198C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{732BA6F9-3248-484B-B19F-072C34CD6661}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{732BA6F9-3248-484B-B19F-072C34CD6661}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{732BA6F9-3248-484B-B19F-072C34CD6661}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{732BA6F9-3248-484B-B19F-072C34CD6661}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,17 @@
+*.pdb
+*.exe
+*.dll
+*.log
+*.suo
+*.user
+
+/Build
+
+/Multiverse/bin
+/Multiverse/obj
+
+/Multiverse.Server/bin
+/Multiverse.Server/obj
+
+/Multiverse.Client/bin
+/Multiverse.Client/obj
