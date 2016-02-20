@@ -9,12 +9,16 @@
 //        #        The MIT License (MIT)          #
 #endregion
 
+#region References
+using System;
+#endregion
+
 namespace Multiverse
 {
 	public sealed class PortalPacketBuffered : PortalPacket
 	{
 		public PortalPacketBuffered(byte[] buffer)
-			: base(buffer[0], (ushort)buffer.Length)
+			: base(BitConverter.ToUInt16(buffer, 0))
 		{
 			Stream.Position = 0;
 

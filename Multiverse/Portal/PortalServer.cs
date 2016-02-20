@@ -21,7 +21,7 @@ namespace Multiverse
 	public sealed class PortalServer : PortalTransport
 	{
 		private volatile List<PortalClient> _Clients = new List<PortalClient>();
-		
+
 		private readonly object _ClientsLock = new object();
 
 		public IEnumerable<PortalClient> Clients
@@ -59,9 +59,9 @@ namespace Multiverse
 
 		public bool IsConnected(ushort serverID)
 		{
-			if (Portal.ClientID == serverID)
+			if (Portal.IsClient)
 			{
-				return IsAlive;
+				return Portal.ClientID == serverID && IsAlive;
 			}
 
 			lock (_ClientsLock)
@@ -87,7 +87,7 @@ namespace Multiverse
 			}
 			catch (Exception e)
 			{
-				ToConsole("Listener: Failed: {0}", e.Message);
+				ToConsole("Listener: Failed", e);
 
 				Dispose();
 				return;
@@ -145,7 +145,7 @@ namespace Multiverse
 			}
 			catch (Exception e)
 			{
-				ToConsole("Listener: Failed: {0}", e.Message);
+				ToConsole("Listener: Failed", e);
 
 				Dispose();
 			}

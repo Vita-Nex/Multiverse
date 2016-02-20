@@ -19,14 +19,12 @@ namespace Multiverse
 {
 	public abstract class PortalTransport : IDisposable
 	{
-		private volatile Thread _Thread;
-
 		private volatile bool _CheckingAlive;
 
 		private volatile bool _IsDisposed;
 		private volatile bool _IsDisposing;
 
-		public Thread Thread { get { return _Thread; } }
+		public Thread Thread { get; private set; }
 
 		public abstract Socket Socket { get; }
 
@@ -38,7 +36,7 @@ namespace Multiverse
 		[STAThread]
 		public void Start()
 		{
-			_Thread = Thread.CurrentThread;
+			Thread = Thread.CurrentThread;
 
 			try
 			{
@@ -46,7 +44,7 @@ namespace Multiverse
 			}
 			catch (Exception e)
 			{
-				ToConsole(e.Message);
+				ToConsole("Start: Failed", e);
 
 				Dispose();
 			}
@@ -105,6 +103,10 @@ namespace Multiverse
 
 		public void ToConsole(string message, params object[] args)
 		{
+			var cc = Console.ForegroundColor;
+
+			Console.ForegroundColor = ConsoleColor.Yellow;
+
 			if (args == null || args.Length == 0)
 			{
 				Console.WriteLine("[{0}] {1}", this, message);
@@ -113,6 +115,17 @@ namespace Multiverse
 			{
 				Console.WriteLine("[{0}] {1}", this, String.Format(message, args));
 			}
+
+			Console.ForegroundColor = cc;
+		}
+
+		public void ToConsole(string message, Exception e)
+		{
+			var cc = Console.ForegroundColor;
+
+			Console.ForegroundColor = ConsoleColor.Red;
+			Console.WriteLine("[{0}] {1}: {2}", this, message, e);
+			Console.ForegroundColor = cc;
 		}
 
 		public void Dispose()
@@ -140,10 +153,15 @@ namespace Multiverse
 			catch
 			{ }
 
-			if (Portal.Transport != this)
+			try
 			{
-				Portal.Transport.CheckAlive();
+				if (Portal.Transport != null && Portal.Transport != this)
+				{
+					Portal.Transport.CheckAlive();
+				}
 			}
+			catch
+			{ }
 
 			_IsDisposing = false;
 		}
@@ -171,8 +189,5 @@ namespace Multiverse
 			catch
 			{ }
 		}
-
-		public virtual void Slice()
-		{ }
 	}
 }

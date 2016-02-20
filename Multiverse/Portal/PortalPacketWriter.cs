@@ -29,34 +29,27 @@ namespace Multiverse
 		private static readonly Type _TypeOfLong = typeof(Int64);
 		private static readonly Type _TypeOfULong = typeof(UInt64);
 
-		public byte PacketID { get; private set; }
+		public ushort PacketID { get; private set; }
 		public ushort ClientID { get; private set; }
 
-		public ushort Length { get { return (ushort)BaseStream.Length; } set { BaseStream.SetLength(value); } }
-		public ushort Position { get { return (ushort)BaseStream.Position; } set { BaseStream.Position = value; } }
+		public int Length { get { return (int)BaseStream.Length; } set { BaseStream.SetLength(value); } }
 
-		public PortalPacketWriter(byte id, ushort clientID, ushort length)
-			: base(new MemoryStream(length), Encoding.UTF8)
+		public int Position { get { return (int)BaseStream.Position; } set { BaseStream.Position = value; } }
+
+		public PortalPacketWriter(ushort id, ushort clientID)
+			: base(new MemoryStream(), Encoding.UTF8)
 		{
 			PacketID = id;
 			ClientID = clientID;
-
-			Length = length;
-			Position = 0;
 
 			Write(PacketID);
 			Write(ClientID);
 			Write(Length);
 		}
 
-		public void Fill()
-		{
-			Fill(Length - Position);
-		}
-
 		public void Fill(int length)
 		{
-			var offset = (ushort)(Position + length);
+			var offset = Position + length;
 
 			if (offset > Length)
 			{
@@ -66,14 +59,9 @@ namespace Multiverse
 			Position = offset;
 		}
 
-		public void FillRandom()
-		{
-			FillRandom(Length - Position);
-		}
-
 		public void FillRandom(int length)
 		{
-			var offset = (ushort)(Position + length);
+			var offset = Position + length;
 
 			if (offset > Length)
 			{

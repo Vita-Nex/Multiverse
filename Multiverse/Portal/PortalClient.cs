@@ -22,6 +22,8 @@ namespace Multiverse
 {
 	public sealed class PortalClient : PortalTransport
 	{
+		private readonly Queue _ReceiveQueue = Queue.Synchronized(new Queue());
+
 		private readonly AutoResetEvent _ReceiveSync = new AutoResetEvent(true);
 
 		private readonly object _SendLock = new object();
@@ -38,11 +40,14 @@ namespace Multiverse
 		private volatile bool _IsSeeded;
 		private volatile bool _IsAuthed;
 
+		private volatile bool _DisplaySendOutput;
+		private volatile bool _DisplayRecvOutput;
+
 		private volatile Socket _Client;
 
 		public override Socket Socket { get { return _Client; } }
 
-		public Dictionary<byte, PortalPacketHandler> Handlers { get; private set; }
+		public Dictionary<ushort, PortalPacketHandler> Handlers { get; private set; }
 
 		public ushort ServerID { get { return _ServerID ?? UInt16.MaxValue; } }
 
@@ -51,6 +56,9 @@ namespace Multiverse
 
 		public bool IsSeeded { get { return _IsSeeded; } set { _IsSeeded = value; } }
 		public bool IsAuthed { get { return _IsAuthed; } set { _IsAuthed = value; } }
+
+		public bool DisplaySendOutput { get { return _DisplaySendOutput; } set { _DisplaySendOutput = value; } }
+		public bool DisplayRecvOutput { get { return _DisplayRecvOutput; } set { _DisplayRecvOutput = value; } }
 
 		public PortalClient()
 			: this(new Socket(Portal.Server.AddressFamily, SocketType.Stream, ProtocolType.Tcp), Portal.ClientID, false)
@@ -74,23 +82,60 @@ namespace Multiverse
 			_IsRemoteClient = remote;
 			_IsLocalClient = !remote;
 
+#if DEBUG
+			_DisplaySendOutput = true;
+			_DisplayRecvOutput = true;
+#endif
+
 			var ep = _IsRemoteClient
 				? _Client.RemoteEndPoint ?? _Client.LocalEndPoint
 				: _Client.LocalEndPoint ?? _Client.RemoteEndPoint;
 
 			_EndPoint = (IPEndPoint)ep;
 
-			Handlers = new Dictionary<byte, PortalPacketHandler>();
+			Handlers = new Dictionary<ushort, PortalPacketHandler>();
 
 			PortalPacketHandlers.RegisterHandlers(this);
 		}
 
-		public PortalPacketHandler Register(byte id, ushort length, PortalContext context, PortalReceive onReceive)
+		public PortalPacketHandler Register(ushort id, PortalContext context, PortalReceive onReceive)
 		{
 			lock (((ICollection)Handlers).SyncRoot)
 			{
-				return Handlers[id] = new PortalPacketHandler(id, length, context, onReceive);
+				if (Handlers.ContainsKey(id))
+				{
+					ToConsole("Warning: Replacing Packet Handler for {0}", id);
+				}
+
+				return Handlers[id] = new PortalPacketHandler(id, context, onReceive);
 			}
+		}
+
+		public PortalPacketHandler Unregister(ushort id)
+		{
+			PortalPacketHandler h;
+
+			lock (((ICollection)Handlers).SyncRoot)
+			{
+				if (Handlers.TryGetValue(id, out h))
+				{
+					Handlers.Remove(id);
+				}
+			}
+
+			return h;
+		}
+
+		public PortalPacketHandler GetHandler(byte id)
+		{
+			PortalPacketHandler h;
+
+			lock (((ICollection)Handlers).SyncRoot)
+			{
+				Handlers.TryGetValue(id, out h);
+			}
+
+			return h;
 		}
 
 		protected override void OnStart()
@@ -105,7 +150,7 @@ namespace Multiverse
 				}
 				catch (Exception e)
 				{
-					ToConsole("Connect: Failed: {0}", e.Message);
+					ToConsole("Connect: Failed", e);
 
 					Dispose();
 					return;
@@ -115,13 +160,13 @@ namespace Multiverse
 				{
 					if (!_Client.Connected)
 					{
-						ToConsole("Connect: Failed!");
+						ToConsole("Connect: Failed");
 
 						Dispose();
 						return;
 					}
 
-					ToConsole("Connect: Success!");
+					ToConsole("Connect: Success");
 
 					var sent = Send(PortalPackets.HandshakeRequest.Create, true);
 
@@ -152,7 +197,7 @@ namespace Multiverse
 				}
 				catch (Exception e)
 				{
-					ToConsole("Connect: Failed: {0}", e.Message);
+					ToConsole("Connect: Failed", e);
 
 					Dispose();
 					return;
@@ -178,7 +223,7 @@ namespace Multiverse
 			}
 			catch (Exception e)
 			{
-				ToConsole("Exception: {0}", e.Message);
+				ToConsole("Exception Thrown", e);
 
 				Dispose();
 			}
@@ -188,68 +233,20 @@ namespace Multiverse
 		{
 			_ReceiveSync.WaitOne();
 
-			var buffer = Peek.Acquire();
-
-			var size = buffer.Length;
-
-			while (size > 0 && _Client != null)
+			if (IsDisposing || IsDisposed)
 			{
-				size -= _Client.Receive(buffer, buffer.Length - size, size, SocketFlags.Peek);
-
-				if (!_Client.Connected)
-				{
-					break;
-				}
-
-				Thread.Sleep(10);
-			}
-
-			if (size > 0)
-			{
-				ToConsole("Recv: Peek Failed at {0}/{1} bytes", buffer.Length - size, buffer.Length);
-
-				Peek.Free(buffer);
-
-				Dispose();
 				return;
 			}
-
-			var pid = buffer[0];
-			var sid = BitConverter.ToUInt16(buffer, 1);
-
-			if (!_ServerID.HasValue)
+			try
 			{
-				_ServerID = sid;
+				var buffer = Peek.Acquire();
+				var length = buffer.Length;
 
-				ToConsole("Recv: Server ID Assigned ({0})", _ServerID);
-			}
-
-			size = BitConverter.ToUInt16(buffer, 3);
-
-			if (size < PortalPacket.MinSize || size > PortalPacket.MaxSize)
-			{
-				ToConsole(
-					"Recv: Size Out Of Range for {0} at {1}/{2}-{3} bytes",
-					pid,
-					size,
-					PortalPacket.MinSize,
-					PortalPacket.MaxSize);
-
-				Peek.Free(buffer);
-
-				Dispose();
-				return;
-			}
-
-			Peek.Exchange(ref buffer, new byte[size]);
-
-			if (size > 0)
-			{
-				while (size > 0 && _Client != null)
+				while (length > 0 && _Client != null)
 				{
-					size -= _Client.Receive(buffer, buffer.Length - size, size, SocketFlags.None);
+					length -= _Client.Receive(buffer, buffer.Length - length, length, SocketFlags.None);
 
-					if (!_Client.Connected)
+					if (!_Client.Connected || length <= 0)
 					{
 						break;
 					}
@@ -257,23 +254,91 @@ namespace Multiverse
 					Thread.Sleep(10);
 				}
 
-				if (size > 0)
+				if (length > 0)
 				{
-					ToConsole("Recv: Failed for {0} at {1}/{2} bytes", pid, buffer.Length - size, buffer.Length);
+					if (_DisplayRecvOutput)
+					{
+						ToConsole("Recv: Peek Failed at {0}/{1} bytes", buffer.Length - length, buffer.Length);
+					}
+
+					Peek.Free(buffer);
 
 					Dispose();
 					return;
 				}
+
+				var pid = BitConverter.ToUInt16(buffer, 0);
+				var sid = BitConverter.ToUInt16(buffer, 2);
+
+				if (!_ServerID.HasValue)
+				{
+					_ServerID = sid;
+
+					if (_DisplayRecvOutput)
+					{
+						ToConsole("Recv: Server ID Assigned ({0})", _ServerID);
+					}
+				}
+
+				var size = BitConverter.ToInt32(buffer, 4);
+
+				if (size < PortalPacket.MinSize || size > PortalPacket.MaxSize)
+				{
+					if (_DisplayRecvOutput)
+					{
+						ToConsole(
+							"Recv: Size Out Of Range for {0} at {1}/{2}-{3} bytes",
+							pid,
+							size,
+							PortalPacket.MinSize,
+							PortalPacket.MaxSize);
+					}
+
+					Peek.Free(buffer);
+
+					Dispose();
+					return;
+				}
+
+				length = size - buffer.Length;
+
+				if (length > 0 && buffer.Length != size)
+				{
+					Peek.Exchange(ref buffer, new byte[size]);
+				}
+
+				while (length > 0 && _Client != null)
+				{
+					length -= _Client.Receive(buffer, size - length, length, SocketFlags.None);
+
+					if (!_Client.Connected || length <= 0)
+					{
+						break;
+					}
+
+					Thread.Sleep(10);
+				}
+
+				if (length > 0)
+				{
+					if (_DisplayRecvOutput)
+					{
+						ToConsole("Recv: Failed for {0} at {1}/{2} bytes", pid, size - length, size);
+					}
+
+					Dispose();
+					return;
+				}
+
+				QueueReceive(buffer);
+			}
+			catch (Exception e)
+			{
+				ToConsole("Recv: Exception Thrown", e);
 			}
 
 			_ReceiveSync.Set();
-
-			QueueReceive(buffer);
 		}
-
-		private readonly Queue _ReceiveQueue = Queue.Synchronized(new Queue());
-
-		//private bool _ProcessingReceiveQueue;
 
 		private void QueueReceive(byte[] buffer)
 		{
@@ -298,7 +363,7 @@ namespace Multiverse
 				return;
 			}
 
-			var pid = buffer[0];
+			var pid = BitConverter.ToUInt16(buffer, 0);
 
 			PortalPacketHandler handler;
 
@@ -306,30 +371,41 @@ namespace Multiverse
 			{
 				if (!Handlers.TryGetValue(pid, out handler) || handler == null)
 				{
-					ToConsole("Recv: Missing Handler for {0}", pid);
+					if (_DisplayRecvOutput)
+					{
+						ToConsole("Recv: Missing Handler for {0}", pid);
+					}
+
 					return;
 				}
 			}
 
-			if (handler.Length > 0 && buffer.Length != handler.Length)
-			{
-				ToConsole("Recv: Size Not Equal for {0} at {1}/{2} bytes", pid, buffer.Length, handler.Length);
-				return;
-			}
-
 			if (handler.Context == PortalContext.Disabled)
 			{
-				ToConsole("Recv: Ignoring Packet {0}", pid);
+				if (_DisplayRecvOutput)
+				{
+					ToConsole("Recv: Ignoring Packet {0}", pid);
+				}
+
 				return;
 			}
 
-			if (handler.Context != PortalContext.Any && handler.Context != Portal.Context)
+			if (handler.Context != PortalContext.Any &&
+				((handler.Context == PortalContext.Server && !IsRemoteClient) ||
+				 (handler.Context == PortalContext.Client && !IsLocalClient)))
 			{
-				ToConsole("Recv: Out Of Context Packet {0} requires {1}", pid, handler.Context);
+				if (_DisplayRecvOutput)
+				{
+					ToConsole("Recv: Out Of Context Packet {0} requires {1}", pid, handler.Context);
+				}
+
 				return;
 			}
 
-			ToConsole("Recv: Received Packet {0} at {1} bytes", pid, buffer.Length);
+			if (_DisplayRecvOutput)
+			{
+				ToConsole("Recv: Received Packet {0} at {1} bytes", pid, buffer.Length);
+			}
 
 			using (var p = new PortalPacketReader(buffer))
 			{
@@ -358,56 +434,69 @@ namespace Multiverse
 
 			if (buffer == null)
 			{
-				ToConsole("Send: Buffer Null for {0}", p.ID);
+				if (_DisplaySendOutput)
+				{
+					ToConsole("Send: Buffer Null for {0}", p.ID);
+				}
 
 				return false;
 			}
 
-			if (buffer.Length < PortalPacket.MinSize || buffer.Length > PortalPacket.MaxSize)
+			var size = buffer.Length;
+
+			if (size < PortalPacket.MinSize || size > PortalPacket.MaxSize)
 			{
-				ToConsole(
-					"Send: Size Out Of Range for {0} at {1}/{2}-{3} bytes",
-					p.ID,
-					buffer.Length,
-					PortalPacket.MinSize,
-					PortalPacket.MaxSize);
+				if (_DisplaySendOutput)
+				{
+					ToConsole(
+						"Send: Size Out Of Range for {0} at {1}/{2}-{3} bytes",
+						p.ID,
+						size,
+						PortalPacket.MinSize,
+						PortalPacket.MaxSize);
+				}
 
 				return false;
 			}
+
+			var length = size;
 
 			lock (_SendLock)
 			{
-				var size = buffer.Length;
-
-				while (size > 0 && _Client != null)
+				while (length > 0 && _Client != null)
 				{
-					size -= _Client.Send(buffer, buffer.Length - size, size, SocketFlags.None);
+					length -= _Client.Send(buffer, size - length, length, SocketFlags.None);
 
-					if (!_Client.Connected)
+					if (!_Client.Connected || length <= 0)
 					{
 						break;
 					}
 
 					Thread.Sleep(10);
 				}
+			}
 
-				if (size > 0)
+			if (length > 0)
+			{
+				if (_DisplaySendOutput)
 				{
-					ToConsole("Send: Failed for {0} at {1}/{2} bytes", p.ID, buffer.Length - size, buffer.Length);
-
-					Dispose();
-					return false;
+					ToConsole("Send: Failed for {0} at {1}/{2} bytes", p.ID, size - length, size);
 				}
 
-				ToConsole("Send: Sent Packet {0} at {1} bytes", p.ID, buffer.Length);
+				Dispose();
+				return false;
+			}
+
+			if (_DisplaySendOutput)
+			{
+				ToConsole("Send: Sent Packet {0} at {1} bytes", p.ID, size);
 			}
 
 			if (getResponse)
 			{
 				Receive();
+				ProcessReceiveQueue();
 			}
-
-			ProcessReceiveQueue();
 
 			return true;
 		}
@@ -457,11 +546,8 @@ namespace Multiverse
 				lock (((ICollection)Handlers).SyncRoot)
 				{
 					Handlers.Clear();
-					Handlers = null;
 				}
 			}
-
-			_Client = null;
 
 			try
 			{
@@ -470,6 +556,10 @@ namespace Multiverse
 			}
 			catch
 			{ }
+
+			Handlers = null;
+
+			_Client = null;
 		}
 
 		public override string ToString()
@@ -484,17 +574,13 @@ namespace Multiverse
 
 		private static class Peek
 		{
-			private static readonly Queue<byte[]> _Pool = new Queue<byte[]>();
-			private static readonly object _SyncRoot = ((ICollection)_Pool).SyncRoot;
+			private static readonly Queue _Pool = Queue.Synchronized(new Queue());
 
 			public static byte[] Acquire()
 			{
-				lock (_SyncRoot)
+				if (_Pool.Count > 0)
 				{
-					if (_Pool.Count > 0)
-					{
-						return _Pool.Dequeue();
-					}
+					return (byte[])_Pool.Dequeue();
 				}
 
 				return new byte[PortalPacket.MinSize];
@@ -512,17 +598,14 @@ namespace Multiverse
 					peek[i] = 0;
 				}
 
-				lock (_SyncRoot)
-				{
-					_Pool.Enqueue(peek);
-				}
+				_Pool.Enqueue(peek);
 			}
 
 			public static void Exchange(ref byte[] peek, byte[] buffer)
 			{
 				if (buffer != null)
 				{
-					Buffer.BlockCopy(peek, 0, buffer, 0, Math.Min(peek.Length, buffer.Length));
+					Buffer.BlockCopy(peek, 0, buffer, 0, peek.Length);
 				}
 
 				buffer = Interlocked.Exchange(ref peek, buffer);
