@@ -27,7 +27,7 @@ namespace Multiverse
 			Domain.Config();
 
 			Portal.ServerID = 0;
-			Portal.ClientID = (ushort)(Portal.Random(UInt16.MaxValue) + 1);
+			Portal.ClientID = Portal.Random(UInt16.MaxValue);
 
 			Portal.Server = new IPEndPoint(IPAddress.Loopback, 3593);
 
@@ -54,13 +54,23 @@ namespace Multiverse
 					Thread.Sleep(10);
 				}
 			}
+
+			while (Portal.IsAlive)
+			{
+				Thread.Sleep(10);
+			}
 		}
 
 		public static void Close()
 		{
-			Portal.Stop();
+			if (Closing)
+			{
+				return;
+			}
 
 			Closing = true;
+
+			Portal.Stop();
 		}
 
 		private static class Domain
@@ -75,17 +85,23 @@ namespace Multiverse
 
 			private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
 			{
-				if (!e.IsTerminating)
+				try
 				{
-					return;
+					if (e.IsTerminating)
+					{
+						Close();
+					}
+
+					Portal.ToConsole("Exception Thrown", (Exception)e.ExceptionObject);
+
+					if (e.IsTerminating)
+					{
+						Portal.ToConsole("Press any key to exit...");
+						Console.ReadKey();
+					}
 				}
-
-				Portal.ToConsole(e.ExceptionObject.ToString());
-				Portal.ToConsole("Exception thrown, press any key to exit...");
-
-				Console.ReadKey();
-
-				Close();
+				catch
+				{ }
 			}
 
 			private enum ConsoleEventType

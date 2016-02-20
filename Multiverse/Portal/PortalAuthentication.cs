@@ -34,7 +34,7 @@ namespace Multiverse
 				{
 					var now = DateTime.UtcNow;
 
-					if (now.TimeOfDay.Hours == _Regenerate.TimeOfDay.Hours)
+					if (_Key != null && now.TimeOfDay.Hours == _Regenerate.TimeOfDay.Hours)
 					{
 						return _Key;
 					}

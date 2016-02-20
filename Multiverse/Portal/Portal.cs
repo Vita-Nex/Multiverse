@@ -22,6 +22,8 @@ namespace Multiverse
 {
 	public static class Portal
 	{
+		private static readonly Random _Random = new Random();
+
 		public static Thread Thread { get; private set; }
 
 		public static PortalTransport Transport { get; private set; }
@@ -131,7 +133,7 @@ namespace Multiverse
 			}
 			catch (Exception e)
 			{
-				ToConsole("Start: Failed: {0}", e.Message);
+				ToConsole("Start: Failed", e);
 
 				Stop();
 			}
@@ -150,9 +152,9 @@ namespace Multiverse
 			{
 				Thread.Start();
 
-				while (!Thread.IsAlive)
+				while (Thread != null && !Thread.IsAlive)
 				{
-					Thread.Sleep(1);
+					Thread.Sleep(10);
 				}
 
 				if (IsAlive && OnStart != null)
@@ -169,23 +171,20 @@ namespace Multiverse
 			if (Transport != null)
 			{
 				Transport.Dispose();
-				Transport = null;
 			}
 
-			if (Thread != null)
+			if (Thread != null && Thread.IsAlive)
 			{
-				if (Thread.IsAlive)
+				Thread.Abort();
+
+				while (Thread != null && Thread.IsAlive)
 				{
-					Thread.Abort();
-
-					while (Thread.IsAlive)
-					{
-						Thread.Sleep(1);
-					}
+					Thread.Sleep(10);
 				}
-
-				Thread = null;
 			}
+
+			Transport = null;
+			Thread = null;
 
 			if (OnStop != null)
 			{
@@ -257,8 +256,30 @@ namespace Multiverse
 			}
 			else
 			{
+				var cc = Console.ForegroundColor;
+
+				Console.ForegroundColor = ConsoleColor.Yellow;
 				Console.WriteLine("[Portal] {0}", String.Format(message, args));
+				Console.ForegroundColor = cc;
 			}
+		}
+
+		public static void ToConsole(string message, Exception e)
+		{
+			if (IsAlive)
+			{
+				Transport.ToConsole(message, e);
+			}
+			else
+			{
+				var cc = Console.ForegroundColor;
+
+				Console.ForegroundColor = ConsoleColor.Red;
+				Console.WriteLine("[Portal] {0}: {1}", message, e);
+				Console.ForegroundColor = cc;
+			}
+
+			Trace(e);
 		}
 
 		public static void FormatBuffer(TextWriter output, Stream input, int length)
@@ -353,8 +374,6 @@ namespace Multiverse
 			}
 		}
 
-		private static readonly Random _Random = new Random();
-
 		public static int Random()
 		{
 			return _Random.Next();
@@ -403,6 +422,15 @@ namespace Multiverse
 		public static bool RandomBool()
 		{
 			return _Random.Next(0, 2) == 0;
+		}
+
+		public static void Trace(Exception e)
+		{
+			using (TextWriter traceLog = File.CreateText("PortalErrors.log"))
+			{
+				traceLog.WriteLine(DateTime.Now);
+				traceLog.WriteLine(e);
+			}
 		}
 	}
 }

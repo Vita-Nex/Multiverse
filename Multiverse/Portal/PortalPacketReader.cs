@@ -20,6 +20,8 @@ namespace Multiverse
 {
 	public sealed class PortalPacketReader : BinaryReader
 	{
+		private static readonly byte[] _EmptyBytes = new byte[0];
+
 		private static readonly Type _TypeOfSByte = typeof(SByte);
 		private static readonly Type _TypeOfByte = typeof(Byte);
 		private static readonly Type _TypeOfShort = typeof(Int16);
@@ -39,25 +41,32 @@ namespace Multiverse
 			}
 
 			Enum.TryParse(val.ToString(), out flag);
+
 			return flag;
 		}
 
-		public byte PacketID { get; private set; }
+		public ushort PacketID { get; private set; }
 		public ushort ServerID { get; private set; }
-		public ushort Length { get; private set; }
+
+		public int Length { get; private set; }
 
 		public int Position { get { return (int)BaseStream.Position; } set { BaseStream.Position = value; } }
 
 		public PortalPacketReader(byte[] buffer)
 			: base(new MemoryStream(buffer, false), Encoding.UTF8)
 		{
-			PacketID = ReadByte();
+			PacketID = ReadUInt16();
 			ServerID = ReadUInt16();
-			Length = ReadUInt16();
+			Length = ReadInt32();
 		}
 
 		public byte[] ReadToEnd()
 		{
+			if (Position >= Length)
+			{
+				return _EmptyBytes;
+			}
+
 			return ReadBytes(Length - Position);
 		}
 

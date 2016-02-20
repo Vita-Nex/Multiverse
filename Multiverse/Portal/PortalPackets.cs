@@ -18,7 +18,7 @@ namespace Multiverse
 			public static HandshakeRequest Create { get { return new HandshakeRequest(); } }
 
 			private HandshakeRequest()
-				: base(0, 25)
+				: base(0)
 			{
 				Stream.Write(PortalAuthentication.Key);
 			}
@@ -36,7 +36,7 @@ namespace Multiverse
 			}
 
 			private HandshakeResponse(bool success)
-				: base(1, 6)
+				: base(1)
 			{
 				Stream.Write(success);
 			}
@@ -52,9 +52,9 @@ namespace Multiverse
 			}
 
 			private PingRequest()
-				: base(2, 32)
+				: base(2)
 			{
-				Stream.FillRandom();
+				Stream.FillRandom(MaxSize - 8);
 			}
 		}
 
@@ -68,9 +68,9 @@ namespace Multiverse
 			}
 
 			private PingResponse()
-				: base(3, 32)
+				: base(3)
 			{
-				Stream.FillRandom();
+				Stream.FillRandom(MaxSize - 8);
 			}
 		}
 
@@ -84,7 +84,7 @@ namespace Multiverse
 			}
 
 			private DisconnectNotify()
-				: base(255, 5)
+				: base(255)
 			{ }
 		}
 	}

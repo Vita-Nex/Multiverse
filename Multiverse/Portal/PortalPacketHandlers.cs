@@ -22,13 +22,13 @@ namespace Multiverse
 
 		public static void RegisterHandlers(PortalClient client)
 		{
-			client.Register(0, 25, PortalContext.Server, OnHandshakeRequest);
-			client.Register(1, 6, PortalContext.Client, OnHandshakeResponse);
+			client.Register(0, PortalContext.Server, OnHandshakeRequest);
+			client.Register(1, PortalContext.Client, OnHandshakeResponse);
 
-			client.Register(2, 32, PortalContext.Any, OnPingRequest);
-			client.Register(3, 32, PortalContext.Any, OnPingResponse);
+			client.Register(2, PortalContext.Any, OnPingRequest);
+			client.Register(3, PortalContext.Any, OnPingResponse);
 
-			client.Register(255, 5, PortalContext.Any, OnDisconnectNotify);
+			client.Register(255, PortalContext.Any, OnDisconnectNotify);
 
 			if (OnRegister != null)
 			{
