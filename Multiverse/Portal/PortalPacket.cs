@@ -18,7 +18,10 @@ namespace Multiverse
 	public abstract class PortalPacket
 	{
 		public static readonly int MinSize = 8;
-		public static readonly int MaxSize = 2097152;
+
+		private static int _MaxSize = 2097152; // 2M
+
+		public static int MaxSize { get { return _MaxSize; } set { _MaxSize = Math.Max(MinSize, value); } }
 
 		private static readonly byte[] _EmptyBuffer = new byte[0];
 

@@ -20,6 +20,8 @@ namespace Multiverse
 {
 	public sealed class PortalServer : PortalTransport
 	{
+		public static Func<Socket, PortalClient> CreateClientHandler;
+
 		private volatile List<PortalClient> _Clients = new List<PortalClient>();
 
 		private readonly object _ClientsLock = new object();
@@ -33,15 +35,36 @@ namespace Multiverse
 					yield break;
 				}
 
+				PortalClient c;
+
 				var i = _Clients.Count;
 
 				while (--i >= 0)
 				{
-					if (i < _Clients.Count)
+					lock (_ClientsLock)
 					{
-						lock (_ClientsLock)
+						if (i > _Clients.Count)
 						{
-							yield return _Clients[i];
+							continue;
+						}
+
+						c = _Clients[i];
+
+						if (c == null)
+						{
+							_Clients.RemoveAt(i);
+
+							ToConsole("C?/?.?.?.? Disconnected [{0} Active]", _Clients.Count);
+						}
+						else if (!c.IsAlive)
+						{
+							_Clients.RemoveAt(i);
+
+							ToConsole("{0} Disconnected [{1} Active]", c, _Clients.Count);
+						}
+						else
+						{
+							yield return c;
 						}
 					}
 				}
@@ -101,7 +124,17 @@ namespace Multiverse
 					{
 						var s = _Server.Accept();
 
-						var client = new PortalClient(s);
+						PortalClient client = null;
+
+						if (CreateClientHandler != null)
+						{
+							client = CreateClientHandler(s);
+						}
+
+						if (client == null)
+						{
+							client = new PortalClient(s);
+						}
 
 						lock (_ClientsLock)
 						{

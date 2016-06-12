@@ -426,11 +426,7 @@ namespace Multiverse
 
 		public static void Trace(Exception e)
 		{
-			using (TextWriter traceLog = File.CreateText("PortalErrors.log"))
-			{
-				traceLog.WriteLine(DateTime.Now);
-				traceLog.WriteLine(e);
-			}
+			File.AppendAllLines("PortalErrors.log", new[] {DateTime.Now.ToString(), e.ToString(), String.Empty, String.Empty});
 		}
 	}
 }

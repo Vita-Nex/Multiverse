@@ -20,7 +20,7 @@ using System.Threading;
 
 namespace Multiverse
 {
-	public sealed class PortalClient : PortalTransport
+	public class PortalClient : PortalTransport
 	{
 		private readonly Queue _ReceiveQueue = Queue.Synchronized(new Queue());
 
@@ -45,7 +45,7 @@ namespace Multiverse
 
 		private volatile Socket _Client;
 
-		public override Socket Socket { get { return _Client; } }
+		public sealed override Socket Socket { get { return _Client; } }
 
 		public Dictionary<ushort, PortalPacketHandler> Handlers { get; private set; }
 
@@ -231,12 +231,13 @@ namespace Multiverse
 
 		private void Receive()
 		{
-			_ReceiveSync.WaitOne();
-
 			if (IsDisposing || IsDisposed)
 			{
 				return;
 			}
+
+			_ReceiveSync.WaitOne();
+
 			try
 			{
 				var buffer = Peek.Acquire();
@@ -335,6 +336,9 @@ namespace Multiverse
 			catch (Exception e)
 			{
 				ToConsole("Recv: Exception Thrown", e);
+
+				Dispose();
+				return;
 			}
 
 			_ReceiveSync.Set();
