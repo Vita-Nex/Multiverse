@@ -184,7 +184,7 @@ namespace Multiverse
 			}
 		}
 
-		public override bool Send(PortalPacket p, bool getResponse)
+		public override bool Send(PortalPacket p)
 		{
 			if (!CheckAlive())
 			{
@@ -199,7 +199,7 @@ namespace Multiverse
 				{
 					try
 					{
-						if (c.Send(p, getResponse))
+						if (c.Send(p))
 						{
 							any = true;
 						}
@@ -214,7 +214,7 @@ namespace Multiverse
 			return any;
 		}
 
-		public override bool SendExcept(PortalPacket p, ushort exceptID, bool getResponse)
+		public override bool SendExcept(PortalPacket p, ushort exceptID)
 		{
 			if (!CheckAlive())
 			{
@@ -229,7 +229,7 @@ namespace Multiverse
 				{
 					try
 					{
-						if (c.SendExcept(p, exceptID, getResponse))
+						if (c.SendExcept(p, exceptID))
 						{
 							any = true;
 						}
@@ -244,7 +244,7 @@ namespace Multiverse
 			return any;
 		}
 
-		public override bool SendTarget(PortalPacket p, ushort targetID, bool getResponse)
+		public override bool SendTarget(PortalPacket p, ushort targetID)
 		{
 			if (!CheckAlive())
 			{
@@ -259,7 +259,7 @@ namespace Multiverse
 				{
 					try
 					{
-						if (c.SendTarget(p, targetID, getResponse))
+						if (c.SendTarget(p, targetID))
 						{
 							any = true;
 						}

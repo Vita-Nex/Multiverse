@@ -51,25 +51,10 @@ namespace Multiverse
 		}
 
 		protected abstract void OnStart();
-
-		public bool Send(PortalPacket p)
-		{
-			return Send(p, false);
-		}
-
-		public bool SendExcept(PortalPacket p, ushort exceptID)
-		{
-			return SendExcept(p, exceptID, false);
-		}
-
-		public bool SendTarget(PortalPacket p, ushort targetID)
-		{
-			return SendTarget(p, targetID, false);
-		}
-
-		public abstract bool Send(PortalPacket p, bool getResponse);
-		public abstract bool SendExcept(PortalPacket p, ushort exceptID, bool getResponse);
-		public abstract bool SendTarget(PortalPacket p, ushort targetID, bool getResponse);
+		
+		public abstract bool Send(PortalPacket p);
+		public abstract bool SendExcept(PortalPacket p, ushort exceptID);
+		public abstract bool SendTarget(PortalPacket p, ushort targetID);
 
 		public bool CheckAlive()
 		{

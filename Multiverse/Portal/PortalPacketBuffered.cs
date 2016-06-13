@@ -17,9 +17,15 @@ namespace Multiverse
 {
 	public sealed class PortalPacketBuffered : PortalPacket
 	{
-		public PortalPacketBuffered(byte[] buffer)
+		private readonly bool _GetResponse;
+
+		public override bool GetResponse { get { return _GetResponse; } }
+
+		public PortalPacketBuffered(byte[] buffer, bool getResponse)
 			: base(BitConverter.ToUInt16(buffer, 0))
 		{
+			_GetResponse = getResponse;
+
 			Stream.Position = 0;
 
 			Stream.Write(buffer);

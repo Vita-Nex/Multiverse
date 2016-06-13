@@ -217,7 +217,7 @@ namespace Multiverse
 
 			return false;
 		}
-
+		
 		public static bool Send(PortalPacket p)
 		{
 			return IsAlive && Transport.Send(p);
@@ -231,21 +231,6 @@ namespace Multiverse
 		public static bool SendExcept(PortalPacket p, ushort exceptID)
 		{
 			return IsAlive && Transport.SendExcept(p, exceptID);
-		}
-
-		public static bool Send(PortalPacket p, bool getResponse)
-		{
-			return IsAlive && Transport.Send(p, getResponse);
-		}
-
-		public static bool SendTarget(PortalPacket p, ushort targetID, bool getResponse)
-		{
-			return IsAlive && Transport.SendTarget(p, targetID, getResponse);
-		}
-
-		public static bool SendExcept(PortalPacket p, ushort exceptID, bool getResponse)
-		{
-			return IsAlive && Transport.SendExcept(p, exceptID, getResponse);
 		}
 
 		public static void ToConsole(string message, params object[] args)

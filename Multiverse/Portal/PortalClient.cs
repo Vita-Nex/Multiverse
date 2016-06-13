@@ -168,7 +168,7 @@ namespace Multiverse
 
 					ToConsole("Connect: Success");
 
-					var sent = Send(PortalPackets.HandshakeRequest.Create, true);
+					var sent = Send(PortalPackets.HandshakeRequest.Create);
 
 					if (!sent)
 					{
@@ -417,22 +417,22 @@ namespace Multiverse
 			}
 		}
 
-		public override bool Send(PortalPacket p, bool getResponse)
+		public override bool Send(PortalPacket p)
 		{
-			return CheckAlive() && InternalSend(p, getResponse);
+			return CheckAlive() && InternalSend(p);
 		}
 
-		public override bool SendTarget(PortalPacket p, ushort targetID, bool getResponse)
+		public override bool SendTarget(PortalPacket p, ushort targetID)
 		{
-			return CheckAlive() && _ServerID == targetID && InternalSend(p, getResponse);
+			return CheckAlive() && _ServerID == targetID && InternalSend(p);
 		}
 
-		public override bool SendExcept(PortalPacket p, ushort exceptID, bool getResponse)
+		public override bool SendExcept(PortalPacket p, ushort exceptID)
 		{
-			return CheckAlive() && _ServerID != exceptID && InternalSend(p, getResponse);
+			return CheckAlive() && _ServerID != exceptID && InternalSend(p);
 		}
 
-		private bool InternalSend(PortalPacket p, bool getResponse)
+		private bool InternalSend(PortalPacket p)
 		{
 			var buffer = p.Compile();
 
@@ -496,7 +496,7 @@ namespace Multiverse
 				ToConsole("Send: Sent Packet {0} at {1} bytes", p.ID, size);
 			}
 
-			if (getResponse)
+			if (p.GetResponse)
 			{
 				Receive();
 				ProcessReceiveQueue();
@@ -533,7 +533,7 @@ namespace Multiverse
 			{
 				_NextAliveCheck = ticks + 60000;
 
-				InternalSend(PortalPackets.PingRequest.Instance, true);
+				InternalSend(PortalPackets.PingRequest.Instance);
 			}
 
 			return IsAlive;

@@ -17,6 +17,8 @@ namespace Multiverse
 		{
 			public static HandshakeRequest Create { get { return new HandshakeRequest(); } }
 
+			public override bool GetResponse { get { return true; } }
+
 			private HandshakeRequest()
 				: base(0)
 			{
@@ -35,6 +37,8 @@ namespace Multiverse
 				Rejected = new HandshakeResponse(false);
 			}
 
+			public override bool GetResponse { get { return false; } }
+
 			private HandshakeResponse(bool success)
 				: base(1)
 			{
@@ -50,6 +54,8 @@ namespace Multiverse
 			{
 				Instance = new PingRequest();
 			}
+
+			public override bool GetResponse { get { return true; } }
 
 			private PingRequest()
 				: base(2)
@@ -67,6 +73,8 @@ namespace Multiverse
 				Instance = new PingResponse();
 			}
 
+			public override bool GetResponse { get { return false; } }
+
 			private PingResponse()
 				: base(3)
 			{
@@ -82,6 +90,8 @@ namespace Multiverse
 			{
 				Instance = new DisconnectNotify();
 			}
+
+			public override bool GetResponse { get { return false; } }
 
 			private DisconnectNotify()
 				: base(255)

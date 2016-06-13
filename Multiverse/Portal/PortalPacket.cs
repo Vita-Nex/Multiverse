@@ -30,6 +30,8 @@ namespace Multiverse
 		public ushort ID { get; private set; }
 		public ushort ClientID { get; private set; }
 
+		public abstract bool GetResponse { get; }
+
 		protected PortalPacketWriter Stream { get; private set; }
 
 		protected PortalPacket(ushort packetID)
