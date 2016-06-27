@@ -138,7 +138,7 @@ namespace Multiverse
 		{
 			return InternalReadString();
 		}
-
+		
 		private string InternalReadString()
 		{
 			var value = base.ReadString();

@@ -27,6 +27,7 @@ namespace Multiverse
 		private readonly AutoResetEvent _ReceiveSync = new AutoResetEvent(true);
 
 		private readonly object _SendLock = new object();
+		private readonly object _GetResponseLock = new object();
 
 		private readonly IPEndPoint _EndPoint;
 
@@ -263,8 +264,6 @@ namespace Multiverse
 					}
 
 					Peek.Free(buffer);
-
-					Dispose();
 					return;
 				}
 
@@ -296,8 +295,6 @@ namespace Multiverse
 					}
 
 					Peek.Free(buffer);
-
-					Dispose();
 					return;
 				}
 
@@ -327,7 +324,6 @@ namespace Multiverse
 						ToConsole("Recv: Failed for {0} at {1}/{2} bytes", pid, size - length, size);
 					}
 
-					Dispose();
 					return;
 				}
 
@@ -336,8 +332,6 @@ namespace Multiverse
 			catch (Exception e)
 			{
 				ToConsole("Recv: Exception Thrown", e);
-
-				Dispose();
 				return;
 			}
 
@@ -487,7 +481,6 @@ namespace Multiverse
 					ToConsole("Send: Failed for {0} at {1}/{2} bytes", p.ID, size - length, size);
 				}
 
-				Dispose();
 				return false;
 			}
 
@@ -496,10 +489,13 @@ namespace Multiverse
 				ToConsole("Send: Sent Packet {0} at {1} bytes", p.ID, size);
 			}
 
-			if (p.GetResponse)
+			lock (_GetResponseLock)
 			{
-				Receive();
-				ProcessReceiveQueue();
+				if (p.GetResponse)
+				{
+					Receive();
+					ProcessReceiveQueue();
+				}
 			}
 
 			return true;
@@ -529,11 +525,15 @@ namespace Multiverse
 				return false;
 			}
 
-			if (ticks >= _NextAliveCheck)
+			if (IsAlive && ticks >= _NextAliveCheck)
 			{
 				_NextAliveCheck = ticks + 60000;
 
-				InternalSend(PortalPackets.PingRequest.Instance);
+				if (!InternalSend(PortalPackets.PingRequest.Instance))
+				{
+					Dispose();
+					return false;
+				}
 			}
 
 			return IsAlive;
@@ -544,6 +544,8 @@ namespace Multiverse
 			_ReceiveSync.Set();
 
 			base.OnDispose();
+
+			Portal.InvokeDisposed(this);
 
 			if (Handlers != null)
 			{

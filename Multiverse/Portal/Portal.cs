@@ -66,6 +66,7 @@ namespace Multiverse
 		public static event Action OnStop;
 
 		public static event Action<PortalClient> OnConnected;
+		public static event Action<PortalClient> OnDisposed;
 
 		static Portal()
 		{
@@ -85,6 +86,14 @@ namespace Multiverse
 			if (client != null && client.IsAlive && OnConnected != null)
 			{
 				OnConnected(client);
+			}
+		}
+
+		public static void InvokeDisposed(PortalClient client)
+		{
+			if (client != null && (client.IsDisposing || client.IsDisposed) && OnDisposed != null)
+			{
+				OnDisposed(client);
 			}
 		}
 
