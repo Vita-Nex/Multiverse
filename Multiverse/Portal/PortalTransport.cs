@@ -51,11 +51,11 @@ namespace Multiverse
 		}
 
 		protected abstract void OnStart();
-		
+
 		public abstract bool Send(PortalPacket p);
 		public abstract bool SendExcept(PortalPacket p, ushort exceptID);
 		public abstract bool SendTarget(PortalPacket p, ushort targetID);
-
+		
 		public bool CheckAlive()
 		{
 			if (_CheckingAlive)
@@ -134,16 +134,6 @@ namespace Multiverse
 			try
 			{
 				OnDispose();
-			}
-			catch
-			{ }
-
-			try
-			{
-				if (Portal.Transport != null && Portal.Transport != this)
-				{
-					Portal.Transport.CheckAlive();
-				}
 			}
 			catch
 			{ }

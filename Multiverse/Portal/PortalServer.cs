@@ -12,6 +12,7 @@
 #region References
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 #endregion
@@ -87,10 +88,7 @@ namespace Multiverse
 				return Portal.ClientID == serverID && IsAlive;
 			}
 
-			lock (_ClientsLock)
-			{
-				return _Clients.Exists(c => c != null && c.ServerID == serverID && c.IsAlive);
-			}
+			return Clients.Any(c => c != null && c.ServerID == serverID);
 		}
 
 		protected override void OnStart()
@@ -145,13 +143,16 @@ namespace Multiverse
 
 						try
 						{
-							var thread = new Thread(client.Start);
-
+							var thread = new Thread(client.Start)
+							{
+								Name = client.ToString()
+							};
+							
 							thread.Start();
 
 							while (!thread.IsAlive)
 							{
-								Thread.Sleep(1);
+								Thread.Sleep(10);
 							}
 						}
 						catch
@@ -179,9 +180,9 @@ namespace Multiverse
 			catch (Exception e)
 			{
 				ToConsole("Listener: Failed", e);
-
-				Dispose();
 			}
+
+			Dispose();
 		}
 
 		public override bool Send(PortalPacket p)
@@ -272,6 +273,21 @@ namespace Multiverse
 			{ }
 
 			return any;
+		}
+
+		public ushort Intern(ushort sid)
+		{
+			if (sid == UInt16.MaxValue)
+			{
+				sid = 0;
+			}
+
+			if (Clients.Any(c => c.IsIdentified && c.ServerID == sid))
+			{
+				return Intern(++sid);
+			}
+
+			return sid;
 		}
 
 		protected override bool CheckAlive(long ticks)

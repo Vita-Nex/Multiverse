@@ -119,7 +119,6 @@ namespace Multiverse
 
 			Thread = new Thread(ThreadStart)
 			{
-				IsBackground = true,
 				Name = "Portal" + (IsServer ? " Server" : IsClient ? " Client" : String.Empty)
 			};
 
@@ -226,7 +225,7 @@ namespace Multiverse
 
 			return false;
 		}
-		
+
 		public static bool Send(PortalPacket p)
 		{
 			return IsAlive && Transport.Send(p);

@@ -48,7 +48,9 @@ namespace Multiverse
 
 			client.IsAuthed = PortalAuthentication.Key.SequenceEqual(key);
 
-			var r = client.IsAuthed ? PortalPackets.HandshakeResponse.Accepted : PortalPackets.HandshakeResponse.Rejected;
+			var r = client.IsAuthed //
+				? PortalPackets.HandshakeResponse.Accepted
+				: PortalPackets.HandshakeResponse.Rejected;
 
 			client.Send(r);
 		}

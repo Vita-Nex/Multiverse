@@ -52,6 +52,8 @@ namespace Multiverse
 
 		public ushort ServerID { get { return _ServerID ?? UInt16.MaxValue; } }
 
+		public bool IsIdentified { get { return _ServerID.HasValue; } }
+
 		public bool IsLocalClient { get { return _IsLocalClient; } }
 		public bool IsRemoteClient { get { return _IsRemoteClient; } }
 
@@ -225,19 +227,19 @@ namespace Multiverse
 			catch (Exception e)
 			{
 				ToConsole("Exception Thrown", e);
-
-				Dispose();
 			}
+
+			Dispose();
 		}
 
 		private void Receive()
 		{
+			_ReceiveSync.WaitOne();
+
 			if (IsDisposing || IsDisposed)
 			{
 				return;
 			}
-
-			_ReceiveSync.WaitOne();
 
 			try
 			{
@@ -264,6 +266,8 @@ namespace Multiverse
 					}
 
 					Peek.Free(buffer);
+
+					Dispose();
 					return;
 				}
 
@@ -272,12 +276,29 @@ namespace Multiverse
 
 				if (!_ServerID.HasValue)
 				{
-					_ServerID = sid;
+					if (Portal.Transport is PortalServer)
+					{
+						_ServerID = ((PortalServer)Portal.Transport).Intern(sid);
+					}
+					else
+					{
+						_ServerID = sid;
+					}
 
 					if (_DisplayRecvOutput)
 					{
 						ToConsole("Recv: Server ID Assigned ({0})", _ServerID);
 					}
+				}
+				else if (Portal.IsServer && _ServerID != sid)
+				{
+					if (_DisplayRecvOutput)
+					{
+						ToConsole("Recv: Potential ServerID spoof: {0}", sid);
+					}
+					
+					Dispose();
+					return;
 				}
 
 				var size = BitConverter.ToInt32(buffer, 4);
@@ -295,6 +316,8 @@ namespace Multiverse
 					}
 
 					Peek.Free(buffer);
+
+					Dispose();
 					return;
 				}
 
@@ -324,6 +347,7 @@ namespace Multiverse
 						ToConsole("Recv: Failed for {0} at {1}/{2} bytes", pid, size - length, size);
 					}
 
+					Dispose();
 					return;
 				}
 
@@ -332,6 +356,8 @@ namespace Multiverse
 			catch (Exception e)
 			{
 				ToConsole("Recv: Exception Thrown", e);
+
+				Dispose();
 				return;
 			}
 
@@ -428,6 +454,11 @@ namespace Multiverse
 
 		private bool InternalSend(PortalPacket p)
 		{
+			if (!IsAlive)
+			{
+				return false;
+			}
+
 			var buffer = p.Compile();
 
 			if (buffer == null)
@@ -553,6 +584,8 @@ namespace Multiverse
 				{
 					Handlers.Clear();
 				}
+
+				Handlers = null;
 			}
 
 			try
@@ -562,8 +595,6 @@ namespace Multiverse
 			}
 			catch
 			{ }
-
-			Handlers = null;
 
 			_Client = null;
 		}
