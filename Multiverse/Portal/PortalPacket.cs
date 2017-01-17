@@ -36,9 +36,9 @@ namespace Multiverse
 
 		protected PortalPacket(ushort packetID)
 		{
-			ClientID = Portal.ClientID;
-
 			ID = packetID;
+
+			ClientID = Portal.ClientID;
 
 			Stream = new PortalPacketWriter(ID, ClientID);
 		}
@@ -47,7 +47,27 @@ namespace Multiverse
 		{
 			if (_Buffer != null)
 			{
+				if (ClientID != Portal.ClientID)
+				{
+					ClientID = Portal.ClientID;
+
+					if (_Buffer.Length >= MinSize)
+					{
+						Buffer.BlockCopy(BitConverter.GetBytes(ClientID), 0, _Buffer, 2, 2);
+					}
+				}
+
 				return _Buffer;
+			}
+
+			if (ClientID != Portal.ClientID)
+			{
+				ClientID = Portal.ClientID;
+
+				if (Stream != null)
+				{
+					Stream.UpdateClientID(ClientID);
+				}
 			}
 
 			if (Stream == null)
@@ -63,10 +83,7 @@ namespace Multiverse
 				Stream.Write(Stream.Length);
 				Stream.Position = Stream.Length;
 
-				if (_Buffer == null)
-				{
-					_Buffer = Stream.ToArray();
-				}
+				_Buffer = Stream.ToArray();
 
 				Stream.Close();
 				Stream = null;

@@ -47,6 +47,19 @@ namespace Multiverse
 			Write(Length);
 		}
 
+		public void UpdateClientID(ushort clientID)
+		{
+			ClientID = clientID;
+
+			var offset = Position;
+
+			Position = 2;
+
+			Write(ClientID);
+
+			Position = offset;
+		}
+
 		public void Fill(int length)
 		{
 			var offset = Position + length;

@@ -11,6 +11,7 @@
 
 #region References
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 #endregion
@@ -25,6 +26,7 @@ namespace Multiverse
 		private static DateTime _Regenerate;
 
 		private static byte[] _Key;
+		private static byte[] _TimeKey;
 
 		public static byte[] Key
 		{
@@ -32,11 +34,29 @@ namespace Multiverse
 			{
 				lock (_SHA1Lock)
 				{
-					var now = DateTime.UtcNow;
-
-					if (_Key != null && now.TimeOfDay.Hours == _Regenerate.TimeOfDay.Hours)
+					if (_Key != null)
 					{
 						return _Key;
+					}
+
+					var buffer = Encoding.ASCII.GetBytes(Portal.AuthKey);
+
+					return _Key = _SHA1.ComputeHash(buffer);
+				}
+			}
+		}
+
+		public static byte[] TimeKey
+		{
+			get
+			{
+				lock (_SHA1Lock)
+				{
+					var now = DateTime.UtcNow;
+
+					if (_TimeKey != null && now.TimeOfDay.Hours == _Regenerate.TimeOfDay.Hours)
+					{
+						return _TimeKey;
 					}
 
 					_Regenerate = now;
@@ -44,11 +64,7 @@ namespace Multiverse
 					var seed = String.Concat(Portal.AuthKey, now.TimeOfDay.Hours);
 					var buffer = Encoding.ASCII.GetBytes(seed);
 
-					_Key = _SHA1.ComputeHash(buffer);
-
-					//Console.WriteLine(String.Join(String.Empty, _Key.Select(b => b.ToString("X2"))));
-
-					return _Key;
+					return _TimeKey = _SHA1.ComputeHash(buffer);
 				}
 			}
 		}
@@ -59,6 +75,11 @@ namespace Multiverse
 			_SHA1Lock = new object();
 
 			_Regenerate = DateTime.MinValue;
+		}
+
+		public static bool Verify(byte[] key)
+		{
+			return Key.SequenceEqual(key) || TimeKey.SequenceEqual(key);
 		}
 	}
 }

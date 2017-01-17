@@ -31,7 +31,7 @@ namespace Multiverse
 		public bool IsDisposed { get { return _IsDisposed; } }
 		public bool IsDisposing { get { return _IsDisposing; } }
 
-		public bool IsAlive { get { return Socket != null && !IsDisposed; } }
+		public virtual bool IsAlive { get { return Socket != null && !IsDisposed; } }
 
 		[STAThread]
 		public void Start()
@@ -86,31 +86,39 @@ namespace Multiverse
 			return true;
 		}
 
+		private static readonly object _OutLock = new object();
+
 		public void ToConsole(string message, params object[] args)
 		{
-			var cc = Console.ForegroundColor;
-
-			Console.ForegroundColor = ConsoleColor.Yellow;
-
-			if (args == null || args.Length == 0)
+			lock (_OutLock)
 			{
-				Console.WriteLine("[{0}] {1}", this, message);
-			}
-			else
-			{
-				Console.WriteLine("[{0}] {1}", this, String.Format(message, args));
-			}
+				var cc = Console.ForegroundColor;
 
-			Console.ForegroundColor = cc;
+				Console.ForegroundColor = ConsoleColor.Yellow;
+
+				if (args == null || args.Length == 0)
+				{
+					Console.WriteLine("[{0}] {1}", this, message);
+				}
+				else
+				{
+					Console.WriteLine("[{0}] {1}", this, String.Format(message, args));
+				}
+
+				Console.ForegroundColor = cc;
+			}
 		}
 
 		public void ToConsole(string message, Exception e)
 		{
-			var cc = Console.ForegroundColor;
+			lock (_OutLock)
+			{
+				var cc = Console.ForegroundColor;
 
-			Console.ForegroundColor = ConsoleColor.Red;
-			Console.WriteLine("[{0}] {1}: {2}", this, message, e);
-			Console.ForegroundColor = cc;
+				Console.ForegroundColor = ConsoleColor.Red;
+				Console.WriteLine("[{0}] {1}: {2}", this, message, e);
+				Console.ForegroundColor = cc;
+			}
 		}
 
 		public void Dispose()
@@ -124,7 +132,7 @@ namespace Multiverse
 
 			try
 			{
-				Send(PortalPackets.DisconnectNotify.Instance);
+				OnBeforeDispose();
 			}
 			catch
 			{ }
@@ -139,6 +147,11 @@ namespace Multiverse
 			{ }
 
 			_IsDisposing = false;
+		}
+
+		protected virtual void OnBeforeDispose()
+		{
+			Send(PortalPackets.DisconnectNotify.Instance);
 		}
 
 		protected virtual void OnDispose()

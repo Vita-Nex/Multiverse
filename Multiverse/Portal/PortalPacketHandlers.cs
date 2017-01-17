@@ -46,7 +46,13 @@ namespace Multiverse
 
 			var key = p.ReadBytes(20);
 
-			client.IsAuthed = PortalAuthentication.Key.SequenceEqual(key);
+			client.IsAuthed = PortalAuthentication.Verify(key);
+
+			if (client.IsAuthed && Portal.UniqueIDs && Portal.Transport is PortalServer &&
+				((PortalServer)Portal.Transport).Clients.Any(c => c != client && c.IsIdentified && c.ServerID == p.ServerID))
+			{
+				client.IsAuthed = false;
+			}
 
 			var r = client.IsAuthed //
 				? PortalPackets.HandshakeResponse.Accepted
@@ -64,12 +70,14 @@ namespace Multiverse
 		{
 			p.ReadToEnd(); // random bytes
 
-			client.Send(PortalPackets.PingResponse.Instance);
+			client.Ping(true);
 		}
 
 		private static void OnPingResponse(PortalClient client, PortalPacketReader p)
 		{
 			p.ReadToEnd(); // random bytes
+
+			client.Pong();
 		}
 
 		private static void OnDisconnectNotify(PortalClient client, PortalPacketReader p)

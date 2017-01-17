@@ -24,9 +24,11 @@ namespace Multiverse
 	{
 		private static readonly Random _Random = new Random();
 
-		public static Thread Thread { get; private set; }
+		private static volatile Thread _Thread;
+		private static volatile PortalTransport _Transport;
 
-		public static PortalTransport Transport { get; private set; }
+		public static Thread Thread { get { return _Thread; } }
+		public static PortalTransport Transport { get { return _Transport; } }
 
 		public static bool IsUnix { get; private set; }
 
@@ -37,6 +39,8 @@ namespace Multiverse
 		public static ushort ServerID { get; set; }
 		public static ushort ClientID { get; set; }
 
+		public static bool UniqueIDs { get; set; }
+
 		public static PortalContext Context { get; set; }
 
 		public static bool IsEnabled { get { return Context != PortalContext.Disabled; } }
@@ -46,7 +50,7 @@ namespace Multiverse
 
 		public static bool IsAlive
 		{
-			get { return Thread != null && Thread.IsAlive && Transport != null && Transport.IsAlive; }
+			get { return _Thread != null && _Thread.IsAlive && _Transport != null && _Transport.IsAlive; }
 		}
 
 		public static long Ticks
@@ -96,7 +100,7 @@ namespace Multiverse
 				OnDisposed(client);
 			}
 		}
-
+		
 		private static void Configure()
 		{
 			if (!IsEnabled)
@@ -117,19 +121,33 @@ namespace Multiverse
 				return;
 			}
 
-			Thread = new Thread(ThreadStart)
+			if (_Transport != null)
 			{
-				Name = "Portal" + (IsServer ? " Server" : IsClient ? " Client" : String.Empty)
-			};
+				_Transport.Dispose();
+			}
+
+			PortalTransport t = null;
 
 			if (IsServer)
 			{
-				Transport = new PortalServer();
+				t = new PortalServer();
 			}
-			else
+			else if (IsClient)
 			{
-				Transport = new PortalClient();
+				t = new PortalClient();
 			}
+
+			_Transport = t;
+
+			if (_Transport == null)
+			{
+				return;
+			}
+
+			_Thread = new Thread(ThreadStart)
+			{
+				Name = "Portal" + (IsServer ? " Server" : IsClient ? " Client" : String.Empty)
+			};
 		}
 
 		[STAThread]
@@ -137,7 +155,10 @@ namespace Multiverse
 		{
 			try
 			{
-				Transport.Start();
+				if (_Transport != null)
+				{
+					_Transport.Start();
+				}
 			}
 			catch (Exception e)
 			{
@@ -149,26 +170,30 @@ namespace Multiverse
 
 		public static bool Start()
 		{
+			var raiseEvent = false;
+
 			Configure();
 
-			if (Thread == null || Transport == null || !IsEnabled)
+			if (_Thread == null || !IsEnabled)
 			{
 				return false;
 			}
 
-			if (!Thread.IsAlive)
+			if (!_Thread.IsAlive)
 			{
-				Thread.Start();
+				_Thread.Start();
 
-				while (Thread != null && !Thread.IsAlive)
+				while (_Thread != null && !_Thread.IsAlive)
 				{
-					Thread.Sleep(10);
+					Thread.Sleep(1);
 				}
 
-				if (IsAlive && OnStart != null)
-				{
-					OnStart();
-				}
+				raiseEvent = IsAlive;
+			}
+
+			if (raiseEvent && OnStart != null)
+			{
+				OnStart();
 			}
 
 			return IsAlive;
@@ -176,23 +201,23 @@ namespace Multiverse
 
 		public static void Stop()
 		{
-			if (Transport != null)
+			if (_Transport != null)
 			{
-				Transport.Dispose();
+				_Transport.Dispose();
 			}
 
-			if (Thread != null && Thread.IsAlive)
+			if (_Thread != null && _Thread.IsAlive)
 			{
-				Thread.Abort();
+				_Thread.Abort();
 
-				while (Thread != null && Thread.IsAlive)
+				while (_Thread != null && _Thread.IsAlive)
 				{
-					Thread.Sleep(10);
+					Thread.Sleep(1);
 				}
 			}
 
-			Transport = null;
-			Thread = null;
+			_Transport = null;
+			_Thread = null;
 
 			if (OnStop != null)
 			{
@@ -213,14 +238,14 @@ namespace Multiverse
 				return !IsEnabled;
 			}
 
-			if (Transport is PortalClient)
+			if (_Transport is PortalClient)
 			{
-				return ((PortalClient)Transport).ServerID == serverID;
+				return ((PortalClient)_Transport).ServerID == serverID;
 			}
 
-			if (Transport is PortalServer)
+			if (_Transport is PortalServer)
 			{
-				return ((PortalServer)Transport).IsConnected(serverID);
+				return ((PortalServer)_Transport).IsConnected(serverID);
 			}
 
 			return false;
@@ -228,24 +253,24 @@ namespace Multiverse
 
 		public static bool Send(PortalPacket p)
 		{
-			return IsAlive && Transport.Send(p);
+			return IsAlive && _Transport.Send(p);
 		}
 
 		public static bool SendTarget(PortalPacket p, ushort targetID)
 		{
-			return IsAlive && Transport.SendTarget(p, targetID);
+			return IsAlive && _Transport.SendTarget(p, targetID);
 		}
 
 		public static bool SendExcept(PortalPacket p, ushort exceptID)
 		{
-			return IsAlive && Transport.SendExcept(p, exceptID);
+			return IsAlive && _Transport.SendExcept(p, exceptID);
 		}
 
 		public static void ToConsole(string message, params object[] args)
 		{
 			if (IsAlive)
 			{
-				Transport.ToConsole(message, args);
+				_Transport.ToConsole(message, args);
 			}
 			else
 			{
@@ -261,7 +286,7 @@ namespace Multiverse
 		{
 			if (IsAlive)
 			{
-				Transport.ToConsole(message, e);
+				_Transport.ToConsole(message, e);
 			}
 			else
 			{
@@ -369,52 +394,82 @@ namespace Multiverse
 
 		public static int Random()
 		{
-			return _Random.Next();
+			lock (_Random)
+			{
+				return _Random.Next();
+			}
 		}
 
 		public static ushort Random(ushort value)
 		{
-			return (ushort)_Random.Next(value);
+			lock (_Random)
+			{
+				return (ushort)_Random.Next(value);
+			}
 		}
 
 		public static ushort RandomMinMax(ushort min, ushort max)
 		{
-			return (ushort)_Random.Next(min, max + 1);
+			lock (_Random)
+			{
+				return (ushort)_Random.Next(min, max + 1);
+			}
 		}
 
 		public static short Random(short value)
 		{
-			return (short)_Random.Next(value);
+			lock (_Random)
+			{
+				return (short)_Random.Next(value);
+			}
 		}
 
 		public static short RandomMinMax(short min, short max)
 		{
-			return (short)_Random.Next(min, max + 1);
+			lock (_Random)
+			{
+				return (short)_Random.Next(min, max + 1);
+			}
 		}
 
 		public static int Random(int value)
 		{
-			return _Random.Next(value);
+			lock (_Random)
+			{
+				return _Random.Next(value);
+			}
 		}
 
 		public static int RandomMinMax(int min, int max)
 		{
-			return _Random.Next(min, max + 1);
+			lock (_Random)
+			{
+				return _Random.Next(min, max + 1);
+			}
 		}
 
 		public static double RandomDouble()
 		{
-			return _Random.NextDouble();
+			lock (_Random)
+			{
+				return _Random.NextDouble();
+			}
 		}
 
 		public static byte RandomByte()
 		{
-			return (byte)_Random.Next(256);
+			lock (_Random)
+			{
+				return (byte)_Random.Next(256);
+			}
 		}
 
 		public static bool RandomBool()
 		{
-			return _Random.Next(0, 2) == 0;
+			lock (_Random)
+			{
+				return _Random.Next(0, 1) == 0;
+			}
 		}
 
 		public static void Trace(Exception e)
