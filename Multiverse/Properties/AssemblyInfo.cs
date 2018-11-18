@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -19,9 +19,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Vita-Nex")]
 [assembly: AssemblyProduct("Multiverse")]
-[assembly: AssemblyCopyright("Copyright © Vita-Nex 2016")]
+[assembly: AssemblyCopyright("Copyright © Vita-Nex 2018")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 [assembly: ComVisible(false)]
 [assembly: Guid("4d7cb530-de9a-4986-b34a-964338753f26")]
-[assembly: AssemblyVersion("1.2.2.*")]
+[assembly: AssemblyVersion("2.0.0.*")]

@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -31,7 +31,8 @@ namespace Multiverse
 		private static readonly Type _TypeOfLong = typeof(Int64);
 		private static readonly Type _TypeOfULong = typeof(UInt64);
 
-		private static TEnum ToEnum<TEnum>(object val) where TEnum : struct
+		private static TEnum ToEnum<TEnum>(object val)
+			where TEnum : struct
 		{
 			var flag = default(TEnum);
 
@@ -50,10 +51,14 @@ namespace Multiverse
 
 		public int Length { get; private set; }
 
-		public int Position { get { return (int)BaseStream.Position; } set { BaseStream.Position = value; } }
+		public int Position
+		{
+			get { return (int)BaseStream.Seek(0, SeekOrigin.Current); }
+			set { BaseStream.Seek(value, SeekOrigin.Begin); }
+		}
 
-		public PortalPacketReader(byte[] buffer)
-			: base(new MemoryStream(buffer, false), Encoding.UTF8)
+		public PortalPacketReader(PortalBuffer buffer)
+			: base(new PortalStream(buffer), Encoding.UTF8)
 		{
 			PacketID = ReadUInt16();
 			ServerID = ReadUInt16();
@@ -94,7 +99,8 @@ namespace Multiverse
 			return new IPAddress(bytes);
 		}
 
-		public TEnum ReadFlag<TEnum>() where TEnum : struct, IConvertible
+		public TEnum ReadFlag<TEnum>()
+			where TEnum : struct, IConvertible
 		{
 			var flag = default(TEnum);
 
@@ -149,11 +155,6 @@ namespace Multiverse
 			}
 
 			return value;
-		}
-
-		public byte[] GetBuffer()
-		{
-			return ((MemoryStream)BaseStream).GetBuffer();
 		}
 
 		public void Trace()

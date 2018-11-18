@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -11,6 +11,7 @@
 
 #region References
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Sockets;
@@ -23,30 +24,28 @@ namespace Multiverse
 	{
 		public static Func<Socket, PortalClient> CreateClientHandler;
 
-		private volatile Queue<PortalClient> _Accepted = new Queue<PortalClient>();
-		private volatile Queue<PortalClient> _Disposed = new Queue<PortalClient>();
+		private volatile AutoResetEvent _Sync;
 
-		private volatile List<PortalClient> _Clients = new List<PortalClient>();
-		
+		private volatile ConcurrentQueue<PortalClient> _Accepted, _Disposed;
+
+		private volatile List<PortalClient> _Clients;
+
 		public IEnumerable<PortalClient> Clients
 		{
 			get
 			{
-				lock (_Clients)
+				if (_Clients == null)
 				{
-					if (_Clients == null)
-					{
-						yield break;
-					}
+					yield break;
+				}
 
-					var i = _Clients.Count;
+				var i = _Clients.Count;
 
-					while (--i >= 0)
+				while (--i >= 0)
+				{
+					if (i < _Clients.Count)
 					{
-						if (i < _Clients.Count)
-						{
-							yield return _Clients[i];
-						}
+						yield return _Clients[i];
 					}
 				}
 			}
@@ -60,12 +59,9 @@ namespace Multiverse
 		{
 			get
 			{
-				lock (_Clients)
+				if (_Clients != null)
 				{
-					if (_Clients != null)
-					{
-						return _Clients.Count;
-					}
+					return _Clients.Count;
 				}
 
 				return 0;
@@ -76,12 +72,9 @@ namespace Multiverse
 		{
 			get
 			{
-				lock (_Clients)
+				if (_Clients != null && index >= 0 && index < _Clients.Count)
 				{
-					if (_Clients != null && index >= 0 && index < _Clients.Count)
-					{
-						return _Clients[index];
-					}
+					return _Clients[index];
 				}
 
 				return null;
@@ -95,9 +88,23 @@ namespace Multiverse
 
 		public PortalServer()
 		{
-			_Server = new Socket(Portal.Server.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+			_Sync = new AutoResetEvent(true);
+
+			_Accepted = new ConcurrentQueue<PortalClient>();
+			_Disposed = new ConcurrentQueue<PortalClient>();
+
+			_Clients = new List<PortalClient>();
+
+			_Server = new Socket(Portal.Server.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+			{
+				LingerState =
+				{
+					Enabled = false
+				},
+				ExclusiveAddressUse = Portal.IsUnix
+			};
 		}
-		
+
 		public bool IsConnected(ushort serverID)
 		{
 			if (Portal.IsClient)
@@ -108,43 +115,57 @@ namespace Multiverse
 			return this[serverID] != null;
 		}
 
-		public void Slice()
+		private void Slice(object state)
 		{
-			ProcessAccepted();
-			CheckActivity();
-			ProcessDisposed();
+			try
+			{
+				Slice();
+
+				Thread.Sleep(10);
+
+				if (IsAlive && ThreadPool.QueueUserWorkItem(Slice))
+				{
+					return;
+				}
+			}
+			catch (Exception e)
+			{
+				ToConsole("Listener: Failed", e);
+			}
+
+			Dispose();
+		}
+
+		private void Slice()
+		{
+			if (_Sync != null)
+			{
+				_Sync.WaitOne();
+
+				ProcessAccepted();
+				CheckActivity();
+				ProcessDisposed();
+
+				_Sync.Set();
+			}
 		}
 
 		private void ProcessAccepted()
 		{
-			lock (_Accepted)
+			PortalClient c;
+
+			var esc = 100;
+
+			while (--esc >= 0 && !_Accepted.IsEmpty)
 			{
-				PortalClient c;
-
-				var esc = 100;
-
-				while (--esc >= 0 && _Accepted.Count > 0)
+				if (!_Accepted.TryDequeue(out c) || c == null)
 				{
-					c = _Accepted.Dequeue();
+					continue;
+				}
 
-					if (c == null)
-					{
-						continue;
-					}
-
-					var thread = new Thread(c.Start)
-					{
-						Name = c.ToString()
-					};
-
-					thread.Start();
-
-					while (!thread.IsAlive)
-					{
-						Thread.Sleep(10);
-					}
-
-					lock (_Clients)
+				if (IsAlive && c.Start())
+				{
+					if (_Clients != null)
 					{
 						_Clients.Add(c);
 
@@ -153,67 +174,47 @@ namespace Multiverse
 
 					Portal.InvokeConnected(c);
 				}
+				else
+				{
+					c.Dispose();
+				}
 			}
 		}
 
 		private void ProcessDisposed()
 		{
-			lock (_Disposed)
+			PortalClient c;
+
+			var esc = 100;
+
+			while (--esc >= 0 && !_Disposed.IsEmpty)
 			{
-				PortalClient c;
-
-				var esc = 100;
-
-				while (--esc >= 0 && _Disposed.Count > 0)
+				if (!_Disposed.TryDequeue(out c) || c == null)
 				{
-					c = _Disposed.Dequeue();
-
-					lock (_Clients)
-					{
-						if (_Clients.Remove(c))
-						{
-							ToConsole("{0} Disconnected [{1} Active]", c, _Clients.Count);
-						}
-					}
-
-					if (c == null)
-					{
-						continue;
-					}
-
-					c.Dispose();
-
-					Portal.InvokeDisposed(c);
+					continue;
 				}
+
+				if (IsAlive && _Clients != null && _Clients.Remove(c))
+				{
+					ToConsole("{0} Disconnected [{1} Active]", c, _Clients.Count);
+				}
+
+				Portal.InvokeDisposed(c);
 			}
 		}
 
 		private void CheckActivity()
 		{
-			lock (_Clients)
+			if (IsDisposed || IsDisposing)
 			{
-				PortalClient c;
+				return;
+			}
 
-				var i = _Clients.Count;
-
-				while (--i >= 0)
+			foreach (var c in Clients)
+			{
+				if (!_Disposed.Contains(c) && !c.IsAlive)
 				{
-					try
-					{
-						c = _Clients[i];
-
-						if (c == null || !c.IsAlive)
-						{
-							lock (_Disposed)
-							{
-								_Disposed.Enqueue(c);
-							}
-						}
-					}
-					catch (Exception e)
-					{
-						ToConsole("Activity Check: Failed", e);
-					}
+					_Disposed.Enqueue(c);
 				}
 			}
 		}
@@ -224,12 +225,8 @@ namespace Multiverse
 			{
 				ToConsole("Listener: Binding: {0}", Portal.Server);
 
-				_Server.LingerState.Enabled = false;
-#if !MONO
-				_Server.ExclusiveAddressUse = false;
-#endif
 				_Server.Bind(Portal.Server);
-				_Server.Listen(8);
+				_Server.Listen(100);
 
 				ToConsole("Listener: Bound: {0}", Portal.Server);
 
@@ -245,11 +242,11 @@ namespace Multiverse
 
 			try
 			{
-				while (CheckAlive())
-				{
-					Thread.Sleep(10);
+				Thread.Sleep(10);
 
-					Slice();
+				if (ThreadPool.QueueUserWorkItem(Slice))
+				{
+					return;
 				}
 			}
 			catch (Exception e)
@@ -262,7 +259,10 @@ namespace Multiverse
 
 		private void BeginAccept()
 		{
-			_Server.BeginAccept(OnAccept, null);
+			if (_Server != null && !IsDisposed && !IsDisposing)
+			{
+				_Server.BeginAccept(OnAccept, null);
+			}
 		}
 
 		private void OnAccept(IAsyncResult r)
@@ -273,7 +273,7 @@ namespace Multiverse
 			{
 				var socket = _Server.EndAccept(r);
 
-				if (socket != null && socket.Connected)
+				if (socket != null)
 				{
 					if (CreateClientHandler != null)
 					{
@@ -286,14 +286,24 @@ namespace Multiverse
 					}
 				}
 
-				lock (_Accepted)
+				if (IsDisposed || IsDisposing)
+				{
+					if (client != null)
+					{
+						_Disposed.Enqueue(client);
+					}
+
+					return;
+				}
+
+				if (client != null)
 				{
 					_Accepted.Enqueue(client);
 				}
 			}
 			catch
 			{
-				lock (_Disposed)
+				if (client != null)
 				{
 					_Disposed.Enqueue(client);
 				}
@@ -302,103 +312,74 @@ namespace Multiverse
 			try
 			{
 				BeginAccept();
+				return;
 			}
 			catch (Exception e)
 			{
 				ToConsole("Listener: Failed", e);
-
-				Dispose();
 			}
+
+			Dispose();
 		}
 
 		public override bool Send(PortalPacket p)
 		{
-			if (!CheckAlive())
+			if (!IsAlive)
 			{
 				return false;
 			}
 
-			var any = false;
+			var any = 0;
 
-			try
+			foreach (var c in Clients)
 			{
-				foreach (var c in Clients)
+				if (c.Send(p))
 				{
-					try
-					{
-						if (c.Send(p))
-						{
-							any = true;
-						}
-					}
-					catch
-					{ }
+					++any;
 				}
 			}
-			catch
-			{ }
 
-			return any;
+			return any > 0;
 		}
 
 		public override bool SendExcept(PortalPacket p, ushort exceptID)
 		{
-			if (!CheckAlive())
+			if (!IsAlive)
 			{
 				return false;
 			}
 
-			var any = false;
+			var any = 0;
 
-			try
+			foreach (var c in Clients)
 			{
-				foreach (var c in Clients)
+				if (c.SendExcept(p, exceptID))
 				{
-					try
-					{
-						if (c.SendExcept(p, exceptID))
-						{
-							any = true;
-						}
-					}
-					catch
-					{ }
+					++any;
 				}
 			}
-			catch
-			{ }
 
-			return any;
+			return any > 0;
 		}
 
 		public override bool SendTarget(PortalPacket p, ushort targetID)
 		{
-			if (!CheckAlive())
+			if (!IsAlive)
 			{
 				return false;
 			}
 
-			var any = false;
+			var any = 0;
 
-			try
+			foreach (var c in Clients)
 			{
-				foreach (var c in Clients)
+				if (c.SendTarget(p, targetID))
 				{
-					try
-					{
-						if (c.SendTarget(p, targetID))
-						{
-							any = true;
-						}
-					}
-					catch
-					{ }
+					++any;
 				}
 			}
-			catch
-			{ }
 
-			return any;
+			return any > 0;
 		}
 
 		protected override bool CheckAlive(long ticks)
@@ -408,15 +389,7 @@ namespace Multiverse
 				return false;
 			}
 
-			try
-			{
-				if (_Server == null || !_Server.IsBound || _Clients == null)
-				{
-					Dispose();
-					return false;
-				}
-			}
-			catch
+			if (_Server == null || !_Server.IsBound || _Clients == null)
 			{
 				Dispose();
 				return false;
@@ -425,41 +398,43 @@ namespace Multiverse
 			return true;
 		}
 
+		protected override void OnBeforeDispose()
+		{
+			base.OnBeforeDispose();
+
+			if (_Sync != null)
+			{
+				_Sync.WaitOne();
+			}
+
+			foreach (var c in Clients)
+			{
+				c.Dispose();
+			}
+
+			ProcessDisposed();
+		}
+
 		protected override void OnDispose()
 		{
 			base.OnDispose();
 
-			lock (_Clients)
+			try
 			{
-				if (_Clients != null)
-				{
-					PortalClient c;
+				_Sync.Close();
+				_Sync.Dispose();
+			}
+			catch
+			{ }
+			finally
+			{
+				_Sync = null;
+			}
 
-					var i = _Clients.Count;
-
-					while (--i >= 0)
-					{
-						try
-						{
-							if (i >= _Clients.Count)
-							{
-								continue;
-							}
-
-							c = _Clients[i];
-
-							if (c != null)
-							{
-								c.Dispose();
-							}
-						}
-						catch
-						{ }
-					}
-
-					_Clients.Clear();
-					_Clients = null;
-				}
+			if (_Clients != null)
+			{
+				_Clients.Clear();
+				_Clients = null;
 			}
 
 			_Server = null;

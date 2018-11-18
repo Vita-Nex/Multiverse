@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -37,7 +37,7 @@ namespace Multiverse
 		public int Position { get { return (int)BaseStream.Position; } set { BaseStream.Position = value; } }
 
 		public PortalPacketWriter(ushort id, ushort clientID)
-			: base(new MemoryStream(), Encoding.UTF8)
+			: base(new PortalStream(PortalPacket.MinSize), Encoding.UTF8)
 		{
 			PacketID = id;
 			ClientID = clientID;
@@ -47,17 +47,41 @@ namespace Multiverse
 			Write(Length);
 		}
 
-		public void UpdateClientID(ushort clientID)
+		public void UpdateHeader(ushort? clientID, int? length)
 		{
-			ClientID = clientID;
+			if (clientID == null && length == null)
+			{
+				return;
+			}
+
+			if (clientID != null)
+			{
+				ClientID = clientID.Value;
+			}
+
+			if (length != null)
+			{
+				Length = length.Value;
+			}
 
 			var offset = Position;
 
 			Position = 2;
 
 			Write(ClientID);
+			Write(Length);
 
 			Position = offset;
+		}
+
+		public void UpdateClientID(ushort clientID)
+		{
+			UpdateHeader(clientID, null);
+		}
+
+		public void UpdateLength(int length)
+		{
+			UpdateHeader(null, length);
 		}
 
 		public void Fill(int length)
@@ -167,11 +191,6 @@ namespace Multiverse
 		private void InternalWrite(string value)
 		{
 			base.Write(value ?? "\0");
-		}
-
-		public byte[] ToArray()
-		{
-			return ((MemoryStream)BaseStream).ToArray();
 		}
 
 		public void Trace()

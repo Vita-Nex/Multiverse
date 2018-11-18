@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -33,29 +33,10 @@ namespace Multiverse
 
 			Portal.Context = PortalContext.Server;
 
-			while (!Closing)
-			{
-				if (!Portal.IsAlive)
-				{
-					Portal.ToConsole("Press any key to start...");
+			Portal.ToConsole("Starting...");
+			Portal.Start();
 
-					Console.ReadKey();
-
-					Portal.ToConsole("Starting...");
-
-					if (!Portal.Start())
-					{
-						Portal.ToConsole("Could not start, retrying in 3 seconds...");
-						Thread.Sleep(3000);
-					}
-				}
-				else
-				{
-					Thread.Sleep(10);
-				}
-			}
-
-			while (Portal.IsAlive)
+			while (!Closing && Portal.IsAlive)
 			{
 				Thread.Sleep(10);
 			}
@@ -63,39 +44,36 @@ namespace Multiverse
 
 		public static void Close()
 		{
-			if (Closing)
-			{
-				return;
-			}
+			Portal.Stop();
 
 			Closing = true;
-
-			Portal.Stop();
 		}
 
 		private static class Domain
 		{
+			private static readonly ConsoleEventHandler _Handler = OnConsoleEvent;
+
 			public static void Config()
 			{
 				AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 				AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
 
-				SetConsoleCtrlHandler(OnConsoleEvent, true);
+				SetConsoleCtrlHandler(_Handler, true);
 			}
 
 			private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
 			{
 				try
 				{
+					if (e.ExceptionObject is Exception)
+					{
+						Portal.ToConsole("Unhandled Exception", (Exception)e.ExceptionObject);
+					}
+
 					if (e.IsTerminating)
 					{
 						Close();
-					}
 
-					Portal.ToConsole("Exception Thrown", (Exception)e.ExceptionObject);
-
-					if (e.IsTerminating)
-					{
 						Portal.ToConsole("Press any key to exit...");
 						Console.ReadKey();
 					}

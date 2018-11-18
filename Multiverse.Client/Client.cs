@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -11,6 +11,7 @@
 
 #region References
 using System;
+using System.Diagnostics;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -33,69 +34,120 @@ namespace Multiverse
 
 			Portal.Context = PortalContext.Client;
 
-			while (!Closing)
-			{
-				if (!Portal.IsAlive)
-				{
-					Portal.ToConsole("Press any key to start...");
+			Portal.OnConnected += OnConnected;
 
-					Console.ReadKey();
+			Portal.ToConsole("Starting...");
+			Portal.Start();
 
-					Portal.ToConsole("Starting...");
-
-					if (!Portal.Start())
-					{
-						Portal.ToConsole("Could not start, retrying in 3 seconds...");
-						Thread.Sleep(3000);
-					}
-				}
-				else
-				{
-					Thread.Sleep(10);
-				}
-			}
-
-			while (Portal.IsAlive)
+			while (!Closing && Portal.IsAlive)
 			{
 				Thread.Sleep(10);
 			}
 		}
 
-		public static void Close()
+		private static void OnConnected(PortalClient c)
 		{
-			if (Closing)
+			PingTest(c);
+
+			c.Dispose();
+		}
+
+		private static void PingTest(PortalClient c)
+		{
+			if (Closing || !c.IsAlive)
 			{
 				return;
 			}
 
-			Closing = true;
+			var count = 0;
 
+			do
+			{
+				Portal.ToConsole("Test: Enter the number of ping requests to send...");
+			}
+			while (!Closing && c.IsAlive && (!Int32.TryParse(Console.ReadLine(), out count) || count < 0));
+
+			if (Closing || !c.IsAlive)
+			{
+				Portal.ToConsole("Test: Skipped ping testing...");
+				return;
+			}
+
+			if (count <= 0)
+			{
+				Portal.ToConsole("Test: Skipped ping testing...");
+				return;
+			}
+
+			var samples = new long[count];
+
+			Portal.ToConsole("Ping: {0:#,0} requests...", samples.Length);
+
+			var time = 0L;
+
+			var watch = new Stopwatch();
+
+			for (var i = 0; i < samples.Length; i++)
+			{
+				watch.Start();
+
+				Portal.ToConsole("Ping: ...");
+
+				var result = c.Ping(false);
+
+				watch.Stop();
+
+				samples[i] = watch.ElapsedMilliseconds;
+
+				watch.Reset();
+
+				time += samples[i];
+
+				Portal.ToConsole("Pong: {0:#,0}ms", samples[i]);
+
+				if (!result)
+				{
+					break;
+				}
+			}
+
+			Portal.ToConsole("Completed: T:{0:#,0}ms A:{1:#,0}ms", time, time / samples.Length);
+
+			PingTest(c);
+		}
+
+		public static void Close()
+		{
 			Portal.Stop();
+
+			Closing = true;
 		}
 
 		private static class Domain
 		{
+			private static readonly ConsoleEventHandler _Handler = OnConsoleEvent;
+
 			public static void Config()
 			{
 				AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 				AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
 
-				SetConsoleCtrlHandler(OnConsoleEvent, true);
+				SetConsoleCtrlHandler(_Handler, true);
 			}
 
 			private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
 			{
 				try
 				{
+					if (e.ExceptionObject is Exception)
+					{
+						Portal.ToConsole("Unhandled Exception", (Exception)e.ExceptionObject);
+					}
+
 					if (e.IsTerminating)
 					{
 						Close();
-					}
 
-					Portal.ToConsole("Exception Thrown", (Exception)e.ExceptionObject);
-
-					if (e.IsTerminating)
-					{
 						Portal.ToConsole("Press any key to exit...");
 						Console.ReadKey();
 					}

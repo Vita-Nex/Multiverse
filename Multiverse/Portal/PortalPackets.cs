@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -48,6 +48,8 @@ namespace Multiverse
 
 		public sealed class PingRequest : PortalPacket
 		{
+			public const int Size = 32;
+
 			public static PingRequest Instance { get; private set; }
 
 			static PingRequest()
@@ -60,12 +62,29 @@ namespace Multiverse
 			private PingRequest()
 				: base(2)
 			{
-				Stream.FillRandom(32);
+				Stream.FillRandom(Size - MinSize);
+			}
+
+			protected override void OnCompile()
+			{
+				base.OnCompile();
+
+				if (this == Instance)
+				{
+					var pos = Stream.Position;
+
+					Stream.Position = MinSize;
+					Stream.FillRandom(Size - MinSize);
+
+					Stream.Position = pos;
+				}
 			}
 		}
 
 		public sealed class PingResponse : PortalPacket
 		{
+			public const int Size = 32;
+
 			public static PingResponse Instance { get; private set; }
 
 			static PingResponse()
@@ -78,7 +97,22 @@ namespace Multiverse
 			private PingResponse()
 				: base(3)
 			{
-				Stream.FillRandom(32);
+				Stream.FillRandom(Size - MinSize);
+			}
+
+			protected override void OnCompile()
+			{
+				base.OnCompile();
+
+				if (this == Instance)
+				{
+					var pos = Stream.Position;
+
+					Stream.Position = MinSize;
+					Stream.FillRandom(Size - MinSize);
+
+					Stream.Position = pos;
+				}
 			}
 		}
 

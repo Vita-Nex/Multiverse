@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -15,7 +15,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Text;
-using System.Threading;
 #endregion
 
 namespace Multiverse
@@ -24,10 +23,8 @@ namespace Multiverse
 	{
 		private static readonly Random _Random = new Random();
 
-		private static volatile Thread _Thread;
 		private static volatile PortalTransport _Transport;
 
-		public static Thread Thread { get { return _Thread; } }
 		public static PortalTransport Transport { get { return _Transport; } }
 
 		public static bool IsUnix { get; private set; }
@@ -48,10 +45,7 @@ namespace Multiverse
 		public static bool IsServer { get { return Context == PortalContext.Server; } }
 		public static bool IsClient { get { return Context == PortalContext.Client; } }
 
-		public static bool IsAlive
-		{
-			get { return _Thread != null && _Thread.IsAlive && _Transport != null && _Transport.IsAlive; }
-		}
+		public static bool IsAlive { get { return _Transport != null && _Transport.IsAlive; } }
 
 		public static long Ticks
 		{
@@ -100,7 +94,7 @@ namespace Multiverse
 				OnDisposed(client);
 			}
 		}
-		
+
 		private static void Configure()
 		{
 			if (!IsEnabled)
@@ -126,7 +120,7 @@ namespace Multiverse
 				_Transport.Dispose();
 			}
 
-			PortalTransport t = null;
+			PortalTransport t;
 
 			if (IsServer)
 			{
@@ -136,62 +130,32 @@ namespace Multiverse
 			{
 				t = new PortalClient();
 			}
+			else
+			{
+				t = null;
+			}
 
 			_Transport = t;
-
-			if (_Transport == null)
-			{
-				return;
-			}
-
-			_Thread = new Thread(ThreadStart)
-			{
-				Name = "Portal" + (IsServer ? " Server" : IsClient ? " Client" : String.Empty)
-			};
 		}
 
-		[STAThread]
-		private static void ThreadStart()
+		public static bool Start()
 		{
-			try
+			Configure();
+
+			if (!IsEnabled || _Transport == null)
 			{
-				if (_Transport != null)
-				{
-					_Transport.Start();
-				}
+				return false;
 			}
-			catch (Exception e)
+
+			Exception e;
+
+			if (!TryGet(_Transport.Start, out e))
 			{
 				ToConsole("Start: Failed", e);
 
 				Stop();
 			}
-		}
-
-		public static bool Start()
-		{
-			var raiseEvent = false;
-
-			Configure();
-
-			if (_Thread == null || !IsEnabled)
-			{
-				return false;
-			}
-
-			if (!_Thread.IsAlive)
-			{
-				_Thread.Start();
-
-				while (_Thread != null && !_Thread.IsAlive)
-				{
-					Thread.Sleep(1);
-				}
-
-				raiseEvent = IsAlive;
-			}
-
-			if (raiseEvent && OnStart != null)
+			else if (OnStart != null)
 			{
 				OnStart();
 			}
@@ -203,21 +167,10 @@ namespace Multiverse
 		{
 			if (_Transport != null)
 			{
-				_Transport.Dispose();
+				Try(_Transport.Dispose);
+
+				_Transport = null;
 			}
-
-			if (_Thread != null && _Thread.IsAlive)
-			{
-				_Thread.Abort();
-
-				while (_Thread != null && _Thread.IsAlive)
-				{
-					Thread.Sleep(1);
-				}
-			}
-
-			_Transport = null;
-			_Thread = null;
 
 			if (OnStop != null)
 			{
@@ -297,7 +250,7 @@ namespace Multiverse
 				Console.ForegroundColor = cc;
 			}
 
-			Trace(e);
+			Trace(message, e);
 		}
 
 		public static void FormatBuffer(TextWriter output, Stream input, int length)
@@ -472,9 +425,107 @@ namespace Multiverse
 			}
 		}
 
-		public static void Trace(Exception e)
+		public static void Trace(string message, Exception e)
 		{
-			File.AppendAllLines("PortalErrors.log", new[] {DateTime.Now.ToString(), e.ToString(), String.Empty, String.Empty});
+			File.AppendAllLines(
+				"PortalErrors.log",
+				new[] {DateTime.Now.ToString(), message, String.Empty, e.ToString(), String.Empty, String.Empty});
+		}
+
+		public static bool Try(Action o)
+		{
+			Exception e;
+
+			return Try(o, out e);
+		}
+
+		public static bool Try(Action o, out Exception e)
+		{
+			e = null;
+
+			try
+			{
+				o();
+
+				return true;
+			}
+			catch (Exception x)
+			{
+				e = x;
+
+				return false;
+			}
+		}
+
+		public static bool Try<S>(Action<S> o, S s)
+		{
+			Exception e;
+
+			return Try(o, s, out e);
+		}
+
+		public static bool Try<S>(Action<S> o, S s, out Exception e)
+		{
+			e = null;
+
+			try
+			{
+				o(s);
+
+				return true;
+			}
+			catch (Exception x)
+			{
+				e = x;
+
+				return false;
+			}
+		}
+
+		public static T TryGet<T>(Func<T> o)
+		{
+			Exception e;
+
+			return TryGet(o, out e);
+		}
+
+		public static T TryGet<T>(Func<T> o, out Exception e)
+		{
+			e = null;
+
+			try
+			{
+				return o();
+			}
+			catch (Exception x)
+			{
+				e = x;
+
+				return default(T);
+			}
+		}
+
+		public static T TryGet<S, T>(Func<S, T> o, S s)
+		{
+			Exception e;
+
+			return TryGet(o, s, out e);
+		}
+
+		public static T TryGet<S, T>(Func<S, T> o, S s, out Exception e)
+		{
+			e = null;
+
+			try
+			{
+				return o(s);
+			}
+			catch (Exception x)
+			{
+				e = x;
+
+				return default(T);
+			}
 		}
 	}
 }

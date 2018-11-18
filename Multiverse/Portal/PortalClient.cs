@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -12,6 +12,7 @@
 #region References
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -24,28 +25,21 @@ namespace Multiverse
 {
 	public class PortalClient : PortalTransport
 	{
-		private readonly Queue _ReceiveQueue = Queue.Synchronized(new Queue());
-
-		private readonly AutoResetEvent _ReceiveSync = new AutoResetEvent(true);
-		private readonly AutoResetEvent _SendSync = new AutoResetEvent(true);
+		private volatile ConcurrentQueue<PortalBuffer> _ReceiveQueue;
 
 		private readonly IPEndPoint _EndPoint;
 
-		private long _NextPing, _AuthExpire;
-
 		private ushort? _ServerID;
 
-		private readonly bool _IsLocalClient;
-		private readonly bool _IsRemoteClient;
+		private long _NextPing, _PingExpire, _AuthExpire;
 
-		private volatile bool _IsSeeded;
-		private volatile bool _IsAuthed;
+		private readonly bool _IsLocalClient, _IsRemoteClient;
 
-		private volatile bool _IsSending;
-		private volatile bool _IsReceiving;
+		private volatile bool _IsSeeded, _IsAuthed;
+		private volatile bool _IsSending, _IsReceiving;
+		private volatile bool _DisplaySendOutput, _DisplayRecvOutput;
 
-		private volatile bool _DisplaySendOutput;
-		private volatile bool _DisplayRecvOutput;
+		private volatile AutoResetEvent _SendSync, _ReceiveSync;
 
 		private volatile Socket _Client;
 
@@ -70,10 +64,7 @@ namespace Multiverse
 		public bool DisplaySendOutput { get { return _DisplaySendOutput; } set { _DisplaySendOutput = value; } }
 		public bool DisplayRecvOutput { get { return _DisplayRecvOutput; } set { _DisplayRecvOutput = value; } }
 
-		public override bool IsAlive
-		{
-			get { return base.IsAlive && (_IsLocalClient || GetState() == TcpState.Established); }
-		}
+		public override bool IsAlive { get { return base.IsAlive && GetState() == TcpState.Established; } }
 
 		public PortalClient()
 			: this(new Socket(Portal.Server.AddressFamily, SocketType.Stream, ProtocolType.Tcp), Portal.ClientID, false)
@@ -85,14 +76,19 @@ namespace Multiverse
 
 		private PortalClient(Socket client, ushort? serverID, bool remote)
 		{
+			_ReceiveQueue = new ConcurrentQueue<PortalBuffer>();
+
+			_SendSync = new AutoResetEvent(true);
+			_ReceiveSync = new AutoResetEvent(true);
+
 			_Client = client;
-
-			_Client.ReceiveBufferSize = PortalPacket.MaxSize;
-			_Client.SendBufferSize = PortalPacket.MaxSize;
-
+			/*
+			_Client.ReceiveBufferSize = 81920;
+			_Client.SendBufferSize = 81920;
+			
 			_Client.ReceiveTimeout = 1000;
 			_Client.SendTimeout = 1000;
-
+			*/
 			_Client.Blocking = true;
 			_Client.NoDelay = true;
 
@@ -122,27 +118,21 @@ namespace Multiverse
 
 		public PortalPacketHandler Register(ushort id, PortalContext context, PortalReceive onReceive)
 		{
-			lock (((ICollection)Handlers).SyncRoot)
+			if (Handlers.ContainsKey(id))
 			{
-				if (Handlers.ContainsKey(id))
-				{
-					ToConsole("Warning: Replacing Packet Handler for {0}", id);
-				}
-
-				return Handlers[id] = new PortalPacketHandler(id, context, onReceive);
+				ToConsole("Warning: Replacing Packet Handler for {0}", id);
 			}
+
+			return Handlers[id] = new PortalPacketHandler(id, context, onReceive);
 		}
 
 		public PortalPacketHandler Unregister(ushort id)
 		{
 			PortalPacketHandler h;
 
-			lock (((ICollection)Handlers).SyncRoot)
+			if (Handlers.TryGetValue(id, out h))
 			{
-				if (Handlers.TryGetValue(id, out h))
-				{
-					Handlers.Remove(id);
-				}
+				Handlers.Remove(id);
 			}
 
 			return h;
@@ -152,10 +142,7 @@ namespace Multiverse
 		{
 			PortalPacketHandler h;
 
-			lock (((ICollection)Handlers).SyncRoot)
-			{
-				Handlers.TryGetValue(id, out h);
-			}
+			Handlers.TryGetValue(id, out h);
 
 			return h;
 		}
@@ -167,93 +154,78 @@ namespace Multiverse
 				return TcpState.Unknown;
 			}
 
-			TcpConnectionInformation[] a;
-			TcpConnectionInformation b;
-
-			if (_IsRemoteClient)
-			{
-				a = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections();
-				b = a.SingleOrDefault(o => o.RemoteEndPoint.Equals(_Client.RemoteEndPoint));
-			}
-			else if (_IsLocalClient)
-			{
-				a = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections();
-				b = a.SingleOrDefault(o => o.LocalEndPoint.Equals(_Client.LocalEndPoint));
-			}
-			else
-			{
-				return TcpState.Unknown;
-			}
-
-			return b != null ? b.State : TcpState.Unknown;
-		}
-
-		private bool Connect(int retry)
-		{
-			var success = false;
-
 			try
 			{
-				var ar = _Client.BeginConnect(
-					Portal.Server,
-					r =>
-					{
-						try
-						{
-							((Socket)r.AsyncState).EndConnect(r);
-						}
-						catch
-						{
-							success = false;
-						}
-					},
-					_Client);
+				TcpConnectionInformation[] a;
+				TcpConnectionInformation b;
 
-				try
+				if (_IsRemoteClient)
 				{
-					success = ar.AsyncWaitHandle.WaitOne(3000, true);
+					a = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections();
+					b = a.SingleOrDefault(o => o.RemoteEndPoint.Equals(_Client.RemoteEndPoint));
 				}
-				catch
+				else if (_IsLocalClient)
 				{
-					success = false;
+					a = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections();
+					b = a.SingleOrDefault(o => o.LocalEndPoint.Equals(_Client.LocalEndPoint));
 				}
+				else
+				{
+					return TcpState.Unknown;
+				}
+
+				return b != null ? b.State : TcpState.Unknown;
 			}
 			catch
 			{
-				success = false;
+				return TcpState.Unknown;
 			}
+		}
 
-			if (!success && --retry >= 0)
+		private bool Connect()
+		{
+			if (_Client == null)
 			{
-				return Connect(retry);
+				return false;
 			}
 
-			return success;
+			if (_Client.Connected)
+			{
+				return true;
+			}
+
+			ToConsole("Connecting: {0}...", Portal.Server);
+
+#if DEBUG
+			_Client.Connect(Portal.Server);
+
+			return _Client.Connected;
+#endif
+
+			try
+			{
+				_Client.Connect(Portal.Server);
+
+				return _Client.Connected;
+			}
+			catch
+			{
+				return false;
+			}
 		}
 
 		protected override void OnStart()
 		{
+			if (IsDisposed || IsDisposing || _Client == null)
+			{
+				return;
+			}
+
 			if (_IsLocalClient)
 			{
-				bool success;
-
 				try
 				{
-					ToConsole("Connect: Target: {0}...", Portal.Server);
-
-					success = Connect(10);
-				}
-				catch (Exception e)
-				{
-					ToConsole("Connect: Failed", e);
-
-					Dispose();
-					return;
-				}
-
-				try
-				{
-					if (!success || !_Client.Connected)
+					if (!Connect())
 					{
 						ToConsole("Connect: Failed");
 
@@ -283,6 +255,7 @@ namespace Multiverse
 						return;
 					}
 				}
+#if DEBUG
 				catch (Exception e)
 				{
 					ToConsole("Connect: Failed", e);
@@ -290,6 +263,15 @@ namespace Multiverse
 					Dispose();
 					return;
 				}
+#else
+				catch
+				{
+					ToConsole("Connect: Failed");
+
+					Dispose();
+					return;
+				}
+#endif
 			}
 
 			try
@@ -304,16 +286,39 @@ namespace Multiverse
 					Portal.InvokeConnected(this);
 				}
 
-				do
+				Thread.Sleep(10);
+
+				if (IsAlive && ThreadPool.QueueUserWorkItem(Receive))
 				{
-					if (_Client != null && _Client.Available >= Peek.Size && Receive())
+					return;
+				}
+			}
+			catch (Exception e)
+			{
+				ToConsole("Exception Thrown", e);
+			}
+
+			Dispose();
+		}
+
+		private void Receive(object state)
+		{
+			try
+			{
+				if (_Client != null)
+				{
+					if (_Client.Available >= Peek.Size && Receive())
 					{
 						ProcessReceiveQueue();
 					}
 
 					Thread.Sleep(10);
+
+					if (IsAlive && ThreadPool.QueueUserWorkItem(Receive))
+					{
+						return;
+					}
 				}
-				while (CheckAlive());
 			}
 			catch (Exception e)
 			{
@@ -327,12 +332,7 @@ namespace Multiverse
 		{
 			try
 			{
-				if (IsDisposed || _Client == null)
-				{
-					return false;
-				}
-
-				if (!_ReceiveSync.WaitOne())
+				if (_ReceiveSync == null || !_ReceiveSync.WaitOne())
 				{
 					return false;
 				}
@@ -342,67 +342,44 @@ namespace Multiverse
 					return false;
 				}
 
-				var buffer = Peek.Acquire();
-				int length = buffer.Length, oldLength;
-				var timeout = Portal.Ticks + Math.Max(1000, _Client.ReceiveTimeout);
-				var timedout = false;
+				var peek = Peek.Acquire();
+				var plen = peek.Length;
 
 				_IsReceiving = true;
 
-				while (length > 0 && _Client != null)
+				while (plen > 0 && _Client != null)
 				{
-					oldLength = length;
-
 					try
 					{
-						length -= _Client.Receive(buffer, buffer.Length - length, length, SocketFlags.None);
+						plen -= _Client.Receive(peek, peek.Length - plen, plen, SocketFlags.None);
 					}
 					catch (SocketException)
 					{
 						Thread.Sleep(10);
 					}
 
-					if (_Client == null || !_Client.Connected || length <= 0)
+					if (_Client == null || !_Client.Connected || plen <= 0)
 					{
 						break;
 					}
-
-					if (oldLength != length)
-					{
-						timeout = Portal.Ticks + Math.Max(1000, _Client.ReceiveTimeout);
-					}
-					else if (Portal.Ticks >= timeout)
-					{
-						timedout = true;
-						break;
-					}
-
-					Thread.Sleep(10);
 				}
 
 				_IsReceiving = false;
 
-				if (length > 0)
+				if (plen > 0)
 				{
 					if (_DisplayRecvOutput)
 					{
-						if (timeout > 0 && timedout)
-						{
-							ToConsole("Recv: Peek Failed (Timeout) at {0}/{1} bytes", buffer.Length - length, buffer.Length);
-						}
-						else
-						{
-							ToConsole("Recv: Peek Failed at {0}/{1} bytes", buffer.Length - length, buffer.Length);
-						}
+						ToConsole("Recv: Peek Failed at {0}/{1} bytes", peek.Length - plen, peek.Length);
 					}
 
-					Peek.Free(buffer);
+					Peek.Free(ref peek);
 
 					Dispose();
 					return false;
 				}
 
-				var pid = BitConverter.ToUInt16(buffer, 0);
+				var pid = BitConverter.ToUInt16(peek, 0);
 
 				if (GetHandler(pid) == null)
 				{
@@ -411,13 +388,13 @@ namespace Multiverse
 						ToConsole("Recv: Unknown Packet ({0})", pid);
 					}
 
-					Peek.Free(buffer);
+					Peek.Free(ref peek);
 
 					Dispose();
 					return false;
 				}
 
-				var sid = BitConverter.ToUInt16(buffer, 2);
+				var sid = BitConverter.ToUInt16(peek, 2);
 
 				if (IsRemoteClient)
 				{
@@ -433,7 +410,7 @@ namespace Multiverse
 							ToConsole("Recv: Server ID Spoofed ({0})", sid);
 						}
 
-						Peek.Free(buffer);
+						Peek.Free(ref peek);
 
 						Dispose();
 						return false;
@@ -452,7 +429,7 @@ namespace Multiverse
 					}
 				}
 
-				var size = BitConverter.ToInt32(buffer, 4);
+				var size = BitConverter.ToInt32(peek, 4);
 
 				if (size < PortalPacket.MinSize || size > PortalPacket.MaxSize)
 				{
@@ -466,53 +443,31 @@ namespace Multiverse
 							PortalPacket.MaxSize);
 					}
 
-					Peek.Free(buffer);
+					Peek.Free(ref peek);
 
 					Dispose();
 					return false;
 				}
 
-				length = size - buffer.Length;
+				var buffer = new PortalBuffer(size);
 
-				if (length > 0 && buffer.Length != size)
+				for (var i = 0; i < peek.Length; i++)
 				{
-					Peek.Exchange(ref buffer, new byte[size]);
+					buffer[i] = peek[i];
 				}
 
-				timeout = Portal.Ticks + Math.Max(1000, _Client.ReceiveTimeout);
-				timedout = false;
+				long length = size - peek.Length;
 
 				_IsReceiving = true;
 
 				while (length > 0 && _Client != null)
 				{
-					oldLength = length;
-
-					try
-					{
-						length -= _Client.Receive(buffer, size - length, length, SocketFlags.None);
-					}
-					catch (SocketException)
-					{
-						Thread.Sleep(10);
-					}
+					length -= buffer.Receive(_Client, size - length, length);
 
 					if (_Client == null || !_Client.Connected || length <= 0)
 					{
 						break;
 					}
-
-					if (oldLength != length)
-					{
-						timeout = Portal.Ticks + Math.Max(1000, _Client.ReceiveTimeout);
-					}
-					else if (Portal.Ticks >= timeout)
-					{
-						timedout = true;
-						break;
-					}
-
-					Thread.Sleep(10);
 				}
 
 				_IsReceiving = false;
@@ -521,14 +476,7 @@ namespace Multiverse
 				{
 					if (_DisplayRecvOutput)
 					{
-						if (timeout > 0 && timedout)
-						{
-							ToConsole("Recv: Failed (Timeout) for {0} at {1}/{2} bytes", pid, size - length, size);
-						}
-						else
-						{
-							ToConsole("Recv: Failed for {0} at {1}/{2} bytes", pid, size - length, size);
-						}
+						ToConsole("Recv: Failed for {0} at {1}/{2} bytes", pid, size - length, size);
 					}
 
 					Dispose();
@@ -536,6 +484,13 @@ namespace Multiverse
 				}
 
 				QueueReceive(buffer);
+
+				if (_ReceiveSync != null)
+				{
+					_ReceiveSync.Set();
+				}
+
+				return true;
 			}
 			catch (Exception e)
 			{
@@ -544,15 +499,11 @@ namespace Multiverse
 				Dispose();
 				return false;
 			}
-
-			_ReceiveSync.Set();
-
-			return true;
 		}
 
-		private void QueueReceive(byte[] buffer)
+		private void QueueReceive(PortalBuffer buffer)
 		{
-			if (buffer != null && buffer.Length >= PortalPacket.MinSize)
+			if (buffer != null && buffer.Size >= PortalPacket.MinSize)
 			{
 				_ReceiveQueue.Enqueue(buffer);
 			}
@@ -560,34 +511,45 @@ namespace Multiverse
 
 		private void ProcessReceiveQueue()
 		{
-			while (_ReceiveQueue.Count > 0)
-			{
-				ProcessReceiveBuffer((byte[])_ReceiveQueue.Dequeue());
-			}
-		}
-
-		private void ProcessReceiveBuffer(byte[] buffer)
-		{
-			if (buffer == null || buffer.Length < PortalPacket.MinSize)
+			if (_ReceiveQueue.IsEmpty)
 			{
 				return;
 			}
 
-			var pid = BitConverter.ToUInt16(buffer, 0);
+			PortalBuffer buffer;
+
+			if (!_ReceiveQueue.TryDequeue(out buffer) || buffer == null)
+			{
+				return;
+			}
+
+			using (buffer)
+			{
+				ProcessReceiveBuffer(buffer);
+			}
+
+			ProcessReceiveQueue();
+		}
+
+		private void ProcessReceiveBuffer(PortalBuffer buffer)
+		{
+			if (buffer == null || buffer.Size < PortalPacket.MinSize)
+			{
+				return;
+			}
+
+			var pid = BitConverter.ToUInt16(buffer.Join(0, 2), 0);
 
 			PortalPacketHandler handler;
 
-			lock (((ICollection)Handlers).SyncRoot)
+			if (!Handlers.TryGetValue(pid, out handler) || handler == null)
 			{
-				if (!Handlers.TryGetValue(pid, out handler) || handler == null)
+				if (_DisplayRecvOutput)
 				{
-					if (_DisplayRecvOutput)
-					{
-						ToConsole("Recv: Missing Handler for {0}", pid);
-					}
-
-					return;
+					ToConsole("Recv: Missing Handler for {0}", pid);
 				}
+
+				return;
 			}
 
 			if (handler.Context == PortalContext.Disabled)
@@ -600,9 +562,8 @@ namespace Multiverse
 				return;
 			}
 
-			if (handler.Context != PortalContext.Any &&
-				((handler.Context == PortalContext.Server && !IsRemoteClient) ||
-				 (handler.Context == PortalContext.Client && !IsLocalClient)))
+			if (handler.Context != PortalContext.Any && ((handler.Context == PortalContext.Server && !IsRemoteClient) ||
+														 (handler.Context == PortalContext.Client && !IsLocalClient)))
 			{
 				if (_DisplayRecvOutput)
 				{
@@ -614,7 +575,7 @@ namespace Multiverse
 
 			if (_DisplayRecvOutput)
 			{
-				ToConsole("Recv: Packet {0} at {1} bytes", pid, buffer.Length);
+				ToConsole("Recv: Packet {0} at {1} bytes", pid, buffer.Size);
 			}
 
 			using (var p = new PortalPacketReader(buffer))
@@ -647,7 +608,7 @@ namespace Multiverse
 					return false;
 				}
 
-				if (!_SendSync.WaitOne())
+				if (_SendSync == null || !_SendSync.WaitOne())
 				{
 					return false;
 				}
@@ -670,7 +631,7 @@ namespace Multiverse
 					return false;
 				}
 
-				var size = buffer.Length;
+				var size = buffer.Size;
 
 				if (size < PortalPacket.MinSize || size > PortalPacket.MaxSize)
 				{
@@ -688,39 +649,18 @@ namespace Multiverse
 					return false;
 				}
 
-				int length = size, oldLength;
-				var timeout = Portal.Ticks + Math.Max(1000, _Client.SendTimeout);
+				var length = size;
 
 				_IsSending = true;
 
 				while (length > 0 && _Client != null)
 				{
-					oldLength = length;
-
-					try
-					{
-						length -= _Client.Send(buffer, size - length, length, SocketFlags.None);
-					}
-					catch (SocketException)
-					{
-						Thread.Sleep(10);
-					}
+					length -= buffer.Send(_Client, size - length, length);
 
 					if (_Client == null || !_Client.Connected || length <= 0)
 					{
 						break;
 					}
-
-					if (oldLength != length)
-					{
-						timeout = Portal.Ticks + Math.Max(1000, _Client.SendTimeout);
-					}
-					else if (Portal.Ticks >= timeout)
-					{
-						break;
-					}
-
-					Thread.Sleep(10);
 				}
 
 				_IsSending = false;
@@ -740,6 +680,29 @@ namespace Multiverse
 				{
 					ToConsole("Send: Packet {0} at {1} bytes", p.ID, size);
 				}
+
+				if (_SendSync != null)
+				{
+					_SendSync.Set();
+				}
+
+				if (p.GetResponse)
+				{
+					if (_Client == null || !_Client.Connected || !Receive())
+					{
+						if (_DisplaySendOutput)
+						{
+							ToConsole("Send: {0} requires a response which could not be handled.", p.ID);
+						}
+
+						Dispose();
+						return false;
+					}
+
+					ProcessReceiveQueue();
+				}
+
+				return true;
 			}
 			catch (Exception e)
 			{
@@ -748,35 +711,7 @@ namespace Multiverse
 				Dispose();
 				return false;
 			}
-
-			if (p.GetResponse)
-			{
-				if (Receive())
-				{
-					_SendSync.Set();
-
-					ProcessReceiveQueue();
-				}
-				else
-				{
-					if (_DisplaySendOutput)
-					{
-						ToConsole("Send: {0} requires a response which could not be handled.", p.ID);
-					}
-
-					Dispose();
-					return false;
-				}
-			}
-			else
-			{
-				_SendSync.Set();
-			}
-
-			return true;
 		}
-
-		private long _PingExpire;
 
 		public bool Ping(bool respond)
 		{
@@ -806,42 +741,20 @@ namespace Multiverse
 
 			if (_Client == null)
 			{
-				Dispose();
 				return false;
 			}
-			
+
 			if (!_IsAuthed && ticks >= _AuthExpire)
 			{
-				Dispose();
 				return false;
 			}
 
 			if (ticks >= _PingExpire)
 			{
-				Dispose();
 				return false;
 			}
 
 			return IsAlive;
-		}
-
-		protected override void OnBeforeDispose()
-		{
-			try
-			{
-				_ReceiveSync.Set();
-			}
-			catch
-			{ }
-
-			try
-			{
-				_SendSync.Set();
-			}
-			catch
-			{ }
-
-			base.OnBeforeDispose();
 		}
 
 		protected override void OnDispose()
@@ -855,11 +768,7 @@ namespace Multiverse
 
 			if (Handlers != null)
 			{
-				lock (((ICollection)Handlers).SyncRoot)
-				{
-					Handlers.Clear();
-				}
-
+				Handlers.Clear();
 				Handlers = null;
 			}
 
@@ -870,6 +779,10 @@ namespace Multiverse
 			}
 			catch
 			{ }
+			finally
+			{
+				_ReceiveSync = null;
+			}
 
 			try
 			{
@@ -878,8 +791,10 @@ namespace Multiverse
 			}
 			catch
 			{ }
-
-			_IsSending = _IsReceiving = false;
+			finally
+			{
+				_SendSync = null;
+			}
 
 			_Client = null;
 		}
@@ -910,7 +825,7 @@ namespace Multiverse
 				return new byte[Size];
 			}
 
-			public static void Free(byte[] peek)
+			public static void Free(ref byte[] peek)
 			{
 				if (peek == null)
 				{
@@ -926,6 +841,8 @@ namespace Multiverse
 				{
 					_Pool.Enqueue(peek);
 				}
+
+				peek = null;
 			}
 
 			public static void Exchange(ref byte[] peek, byte[] buffer)
@@ -937,7 +854,7 @@ namespace Multiverse
 
 				buffer = Interlocked.Exchange(ref peek, buffer);
 
-				Free(buffer);
+				Free(ref buffer);
 			}
 		}
 	}

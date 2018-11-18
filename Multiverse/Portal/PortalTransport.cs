@@ -3,7 +3,7 @@
 //   .      __,-; ,'( '/
 //    \.    `-.__`-._`:_,-._       _ , . ``
 //     `:-._,------' ` _,`--` -: `_ , ` ,' :
-//        `---..__,,--'  (C) 2016  ` -'. -'
+//        `---..__,,--'  (C) 2018  ` -'. -'
 //        #  Vita-Nex [http://core.vita-nex.com]  #
 //  {o)xxx|===============-   #   -===============|xxx(o}
 //        #        The MIT License (MIT)          #
@@ -19,12 +19,17 @@ namespace Multiverse
 {
 	public abstract class PortalTransport : IDisposable
 	{
-		private volatile bool _CheckingAlive;
+		private static readonly AutoResetEvent _OutSync;
+
+		static PortalTransport()
+		{
+			_OutSync = new AutoResetEvent(true);
+		}
 
 		private volatile bool _IsDisposed;
 		private volatile bool _IsDisposing;
 
-		public Thread Thread { get; private set; }
+		private volatile AutoResetEvent _StartSync;
 
 		public abstract Socket Socket { get; }
 
@@ -33,11 +38,35 @@ namespace Multiverse
 
 		public virtual bool IsAlive { get { return Socket != null && !IsDisposed; } }
 
-		[STAThread]
-		public void Start()
+		public PortalTransport()
 		{
-			Thread = Thread.CurrentThread;
+			_StartSync = new AutoResetEvent(false);
+		}
 
+		public bool Start()
+		{
+			if (_IsDisposed || _IsDisposing)
+			{
+				return false;
+			}
+
+			try
+			{
+				if (ThreadPool.QueueUserWorkItem(Start))
+				{
+					return _StartSync != null && _StartSync.WaitOne();
+				}
+			}
+			catch (Exception e)
+			{
+				ToConsole("Start: Failed", e);
+			}
+
+			return false;
+		}
+
+		private void Start(object state)
+		{
 			try
 			{
 				OnStart();
@@ -45,8 +74,11 @@ namespace Multiverse
 			catch (Exception e)
 			{
 				ToConsole("Start: Failed", e);
+			}
 
-				Dispose();
+			if (_StartSync != null)
+			{
+				_StartSync.Set();
 			}
 		}
 
@@ -55,19 +87,10 @@ namespace Multiverse
 		public abstract bool Send(PortalPacket p);
 		public abstract bool SendExcept(PortalPacket p, ushort exceptID);
 		public abstract bool SendTarget(PortalPacket p, ushort targetID);
-		
+
 		public bool CheckAlive()
 		{
-			if (_CheckingAlive)
-			{
-				return IsAlive;
-			}
-
-			_CheckingAlive = true;
-			var result = CheckAlive(Portal.Ticks);
-			_CheckingAlive = false;
-
-			return result;
+			return Portal.TryGet(CheckAlive, Portal.Ticks);
 		}
 
 		protected virtual bool CheckAlive(long ticks)
@@ -86,39 +109,45 @@ namespace Multiverse
 			return true;
 		}
 
-		private static readonly object _OutLock = new object();
-
 		public void ToConsole(string message, params object[] args)
 		{
-			lock (_OutLock)
-			{
-				var cc = Console.ForegroundColor;
-
-				Console.ForegroundColor = ConsoleColor.Yellow;
-
-				if (args == null || args.Length == 0)
-				{
-					Console.WriteLine("[{0}] {1}", this, message);
-				}
-				else
-				{
-					Console.WriteLine("[{0}] {1}", this, String.Format(message, args));
-				}
-
-				Console.ForegroundColor = cc;
-			}
+			ToConsole(ConsoleColor.Yellow, message, args);
 		}
 
 		public void ToConsole(string message, Exception e)
 		{
-			lock (_OutLock)
+			if (e != null)
 			{
-				var cc = Console.ForegroundColor;
-
-				Console.ForegroundColor = ConsoleColor.Red;
-				Console.WriteLine("[{0}] {1}: {2}", this, message, e);
-				Console.ForegroundColor = cc;
+				ToConsole(ConsoleColor.Gray, "{0}:\n{1}", message, e);
 			}
+			else
+			{
+				ToConsole(ConsoleColor.Gray, message);
+			}
+
+			Portal.Trace(message, e);
+		}
+
+		public void ToConsole(ConsoleColor color, string message, params object[] args)
+		{
+			_OutSync.WaitOne();
+
+			var cc = Console.ForegroundColor;
+
+			Console.ForegroundColor = color;
+
+			if (args == null || args.Length == 0)
+			{
+				Console.WriteLine("[{0}] {1}", this, message);
+			}
+			else
+			{
+				Console.WriteLine("[{0}] {1}", this, String.Format(message, args));
+			}
+
+			Console.ForegroundColor = cc;
+
+			_OutSync.Set();
 		}
 
 		public void Dispose()
@@ -130,21 +159,23 @@ namespace Multiverse
 
 			_IsDisposing = true;
 
-			try
-			{
-				OnBeforeDispose();
-			}
-			catch
-			{ }
+			Portal.Try(OnBeforeDispose);
 
 			_IsDisposed = true;
 
+			Portal.Try(OnDispose);
+
 			try
 			{
-				OnDispose();
+				_StartSync.Close();
+				_StartSync.Dispose();
 			}
 			catch
 			{ }
+			finally
+			{
+				_StartSync = null;
+			}
 
 			_IsDisposing = false;
 		}
@@ -156,26 +187,18 @@ namespace Multiverse
 
 		protected virtual void OnDispose()
 		{
-			if (Socket == null)
+			var s = Socket;
+
+			if (s == null)
 			{
 				return;
 			}
 
-			try
-			{
-				Socket.Shutdown(SocketShutdown.Both);
-				Socket.Disconnect(true);
-			}
-			catch
-			{ }
+			Portal.Try(s.Shutdown, SocketShutdown.Both);
+			Portal.Try(s.Disconnect, true);
 
-			try
-			{
-				Socket.Close();
-				Socket.Dispose();
-			}
-			catch
-			{ }
+			Portal.Try(s.Close);
+			Portal.Try(s.Dispose);
 		}
 	}
 }
