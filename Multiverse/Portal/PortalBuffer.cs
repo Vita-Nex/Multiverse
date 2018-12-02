@@ -13,6 +13,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 #endregion
@@ -21,40 +23,103 @@ namespace Multiverse
 {
 	public sealed class PortalBuffer : IEnumerable<byte>, IDisposable
 	{
-		private static readonly byte[][] _Empty = new byte[0][];
-
-		public const int CoalesceMin = 8;
-		public const int CoalesceMax = 81920;
+		private readonly byte[][] _Empty = new byte[0][];
 
 		public const int CoalesceDefault = 8192;
 
-		public const long SizeLimit = CoalesceMax * 65535L;
+		public const int CoalesceMin = 4096;
+		public const int CoalesceMax = 81920;
+
+		public const long SizeLimit = CoalesceMax * 4096L;
+
+		//private static readonly ConcurrentQueue<byte[]>[] _Pool;
+		/*
+		static PortalBuffer()
+		{
+			_Pool = new ConcurrentQueue<byte[]>[CoalesceMax / CoalesceMin];
+
+			for (var i = 0; i < _Pool.Length; i++)
+			{
+				_Pool[i] = new ConcurrentQueue<byte[]>();
+			}
+		}
+		*/
+		private static void AcquireBuffer(out byte[] buffer, int coalesce)
+		{
+			/*
+			if (coalesce == 0 || coalesce < CoalesceMin || coalesce > CoalesceMax)
+			{
+				buffer = new byte[coalesce];
+				return;
+			}
+
+			if (coalesce % CoalesceMin != 0)
+			{
+				buffer = new byte[coalesce];
+				return;
+			}
+
+			var index = (coalesce / CoalesceMin) - 1;
+
+			var pool = _Pool[index];
+
+			if (pool.IsEmpty || !pool.TryDequeue(out buffer))
+			{
+				buffer = new byte[coalesce];
+			}
+			*/
+			buffer = new byte[coalesce];
+		}
+
+		private static void FreeBuffer(ref byte[] buffer)
+		{
+			if (buffer == null)
+			{
+				return;
+			}
+
+			try
+			{
+				Array.Clear(buffer, 0, buffer.Length);
+				/*
+				if (buffer.Length < CoalesceMin || buffer.Length > CoalesceMax)
+				{
+					return;
+				}
+
+				var coalesce = buffer.Length;
+
+				if (coalesce % CoalesceMin != 0)
+				{
+					return;
+				}
+
+				var index = (coalesce / CoalesceMin) - 1;
+
+				var pool = _Pool[index];
+
+				if (pool.Count < (_Pool.Length - index) * 64)
+				{
+					pool.Enqueue(buffer);
+				}
+				*/
+			}
+			catch
+			{ }
+			finally
+			{
+				buffer = null;
+			}
+		}
 
 		private static int ComputeCoalesce(long size)
 		{
-			const int delta = 1024;
+			var coalesce = (1 + (size / CoalesceMin)) * CoalesceMin;
 
-			var coalesce = CoalesceDefault;
-
-			if (coalesce > size)
-			{
-				while (coalesce - delta >= size && coalesce - delta >= CoalesceMin)
-				{
-					coalesce -= delta;
-				}
-			}
-			else if (coalesce < size)
-			{
-				while (coalesce + delta <= size && coalesce + delta <= CoalesceMax)
-				{
-					coalesce += delta;
-				}
-			}
-
-			return coalesce;
+			return (int)Math.Max(CoalesceMin, Math.Min(CoalesceMax, coalesce));
 		}
 
-		private byte[][] _Buffers;
+		private volatile byte[][] _Buffers;
 
 		public byte this[long index]
 		{
@@ -110,11 +175,11 @@ namespace Multiverse
 		{ }
 
 		public PortalBuffer(long size)
-			: this(size, true)
+			: this(size, size > 0)
 		{ }
 
 		public PortalBuffer(long size, bool autoCoalesce)
-			: this(size, !autoCoalesce ? CoalesceDefault : ComputeCoalesce(size))
+			: this(size, autoCoalesce ? ComputeCoalesce(size) : CoalesceDefault)
 		{ }
 
 		public PortalBuffer(long size, int coalesce)
@@ -132,7 +197,7 @@ namespace Multiverse
 					"Value must be >= " + CoalesceMin + " || <= " + CoalesceMax);
 			}
 
-			Coalesce = Math.Max(CoalesceMin, coalesce);
+			Coalesce = coalesce;
 
 			SetSize(size);
 		}
@@ -149,13 +214,17 @@ namespace Multiverse
 				return;
 			}
 
-			IsDisposed = true;
-
-			if (_Buffers != null)
+			try
 			{
-				Array.Clear(_Buffers, 0, _Buffers.Length);
-
+				Free();
+			}
+			catch
+			{ }
+			finally
+			{
 				_Buffers = null;
+
+				IsDisposed = true;
 			}
 		}
 
@@ -197,9 +266,9 @@ namespace Multiverse
 			{
 				if (count > 0 && diff < 0)
 				{
-					diff = Math.Abs(diff);
-
-					Array.Clear(_Buffers[count - 1], (int)(Coalesce - diff), (int)diff);
+					var length = (int)Math.Abs(diff);
+					
+					Array.Clear(_Buffers[count - 1], Coalesce - length, length);
 				}
 
 				return;
@@ -208,23 +277,31 @@ namespace Multiverse
 			var list = _Buffers;
 			var swap = new byte[count][];
 
-			if (count > list.Length)
+			if (swap.Length > list.Length)
 			{
 				Array.Copy(list, swap, list.Length);
 
-				for (var i = list.Length; i < count; i++)
+				for (var i = list.Length; i < swap.Length; i++)
 				{
-					swap[i] = new byte[Coalesce];
+					AcquireBuffer(out swap[i], Coalesce);
 				}
 			}
-			else if (count < list.Length)
+			else if (swap.Length < list.Length)
 			{
-				Array.Copy(list, swap, count);
+				Array.Copy(list, swap, swap.Length);
+
+				for (var i = swap.Length; i < list.Length; i++)
+				{
+					FreeBuffer(ref list[i]);
+				}
 			}
 
-			Array.Clear(list, 0, list.Length);
-
 			_Buffers = swap;
+
+			if (list.Length > 0)
+			{
+				Array.Clear(list, 0, list.Length);
+			}
 		}
 
 		public void Clear()
@@ -233,6 +310,26 @@ namespace Multiverse
 			{
 				throw new ObjectDisposedException("_Buffers");
 			}
+
+			for (var i = 0; i < _Buffers.Length; i++)
+			{
+				Array.Clear(_Buffers[i], 0, _Buffers[i].Length);
+			}
+		}
+
+		public void Free()
+		{
+			if (IsDisposed)
+			{
+				throw new ObjectDisposedException("_Buffers");
+			}
+			
+			for (var i = 0; i < _Buffers.Length; i++)
+			{
+				FreeBuffer(ref _Buffers[i]);
+			}
+
+			Array.Clear(_Buffers, 0, _Buffers.Length);
 
 			_Buffers = _Empty;
 		}
@@ -278,13 +375,7 @@ namespace Multiverse
 				throw new ObjectDisposedException("_Buffers");
 			}
 
-			foreach (var buffer in _Buffers)
-			{
-				for (var i = 0; i < buffer.Length; i++)
-				{
-					yield return buffer[i];
-				}
-			}
+			return _Buffers.SelectMany(o => o).GetEnumerator();
 		}
 
 		IEnumerator IEnumerable.GetEnumerator()
@@ -304,28 +395,68 @@ namespace Multiverse
 				throw new ArgumentNullException("socket");
 			}
 
-			long sent = 0;
+			if (length < 0)
+			{
+				throw new ArgumentOutOfRangeException("length");
+			}
+
+			if (length == 0)
+			{
+				return 0;
+			}
+
+			long sent = 0, pos = offset;
 
 			byte[] buffer;
-			int index;
+			int index, chunk, write, fails = 0;
 
-			do
+			while (sent < length)
 			{
+				buffer = _Buffers[pos / Coalesce];
+				index = (int)(pos % Coalesce);
+
+				chunk = (int)Math.Min(buffer.Length - index, length - sent);
+
+				if (pos + chunk > Size)
+				{
+					chunk = (int)(Size - pos);
+				}
+
+				if (chunk <= 0)
+				{
+					break;
+				}
+
 				try
 				{
-					buffer = _Buffers[(offset + sent) / Coalesce];
-					index = (int)((offset + sent) % Coalesce);
-
-					sent += socket.Send(buffer, index, (int)Math.Min(buffer.Length - index, length - sent), SocketFlags.None);
+					write = socket.Send(buffer, index, chunk, SocketFlags.None);
 				}
 				catch
 				{
 					break;
 				}
 
-				Thread.Sleep(0);
+				if (write > 0)
+				{
+					pos += write;
+					sent += write;
+
+					fails = 0;
+				}
+				else if (++fails < 100)
+				{
+					Thread.Sleep(1);
+				}
+				else
+				{
+					break;
+				}
+
+				if (IsDisposed || sent >= length || pos >= Size || !socket.Connected)
+				{
+					break;
+				}
 			}
-			while (socket.Connected && sent < length);
 
 			return sent;
 		}
@@ -342,30 +473,220 @@ namespace Multiverse
 				throw new ArgumentNullException("socket");
 			}
 
-			var recv = 0;
+			if (length < 0)
+			{
+				throw new ArgumentOutOfRangeException("length");
+			}
+
+			if (length == 0)
+			{
+				return 0;
+			}
+
+			if (offset + length > Size)
+			{
+				SetSize(offset + length);
+			}
+
+			long recv = 0, pos = offset;
 
 			byte[] buffer;
-			int index;
+			int index, chunk, read, fails = 0;
 
-			do
+			while (recv < length && !IsDisposed)
 			{
+				buffer = _Buffers[pos / Coalesce];
+				index = (int)(pos % Coalesce);
+
+				chunk = (int)Math.Min(buffer.Length - index, length - recv);
+
+				if (pos + chunk > Size)
+				{
+					chunk = (int)(Size - pos);
+				}
+
+				if (chunk <= 0)
+				{
+					break;
+				}
+
 				try
 				{
-					buffer = _Buffers[(offset + recv) / Coalesce];
-					index = (int)((offset + recv) % Coalesce);
-
-					recv += socket.Receive(buffer, index, (int)Math.Min(buffer.Length - index, length - recv), SocketFlags.None);
+					read = socket.Receive(buffer, index, chunk, SocketFlags.None);
 				}
 				catch
 				{
 					break;
 				}
 
-				Thread.Sleep(0);
+				if (read > 0)
+				{
+					pos += read;
+					recv += read;
+
+					fails = 0;
+				}
+				else if (++fails < 100)
+				{
+					Thread.Sleep(1);
+				}
+				else
+				{
+					break;
+				}
+
+				if (IsDisposed || recv >= length || pos >= Size || !socket.Connected)
+				{
+					break;
+				}
 			}
-			while (socket.Connected && recv < length);
 
 			return recv;
+		}
+
+		public long WriteToStream(Stream dest, long offset, long length)
+		{
+			if (IsDisposed)
+			{
+				throw new ObjectDisposedException("_Buffers");
+			}
+
+			if (dest == null)
+			{
+				throw new ArgumentNullException("dest");
+			}
+
+			if (offset < 0)
+			{
+				throw new ArgumentOutOfRangeException("offset");
+			}
+
+			if (length < 0)
+			{
+				throw new ArgumentOutOfRangeException("length");
+			}
+
+			if (length == 0)
+			{
+				return 0;
+			}
+			
+			long write = 0, pos = offset;
+
+			byte[] buffer;
+			int index, chunk;
+
+			while (write < length)
+			{
+				try
+				{
+					buffer = _Buffers[pos / Coalesce];
+					index = (int)(pos % Coalesce);
+
+					chunk = (int)Math.Min(buffer.Length - index, length - write);
+
+					if (pos + chunk > Size)
+					{
+						chunk = (int)(Size - pos);
+					}
+
+					if (chunk <= 0)
+					{
+						break;
+					}
+
+					dest.Write(buffer, index, chunk);
+
+					pos += chunk;
+					write += chunk;
+				}
+				catch
+				{
+					break;
+				}
+
+				if (IsDisposed || write >= length || pos >= Size)
+				{
+					break;
+				}
+			}
+
+			return write;
+		}
+
+		public long ReadFromStream(Stream source, long offset, long length)
+		{
+			if (IsDisposed)
+			{
+				throw new ObjectDisposedException("_Buffers");
+			}
+
+			if (source == null)
+			{
+				throw new ArgumentNullException("source");
+			}
+
+			if (offset < 0)
+			{
+				throw new ArgumentOutOfRangeException("offset");
+			}
+
+			if (length < 0)
+			{
+				throw new ArgumentOutOfRangeException("length");
+			}
+
+			if (length == 0)
+			{
+				return 0;
+			}
+
+			if (offset + length > Size)
+			{
+				SetSize(offset + length);
+			}
+
+			long read = 0, pos = offset;
+
+			byte[] buffer;
+			int index, chunk;
+
+			while (read < length)
+			{
+				try
+				{
+					buffer = _Buffers[pos / Coalesce];
+					index = (int)(pos % Coalesce);
+
+					chunk = (int)Math.Min(buffer.Length - index, length - read);
+
+					if (pos + chunk > Size)
+					{
+						chunk = (int)(Size - pos);
+					}
+
+					if (chunk <= 0)
+					{
+						break;
+					}
+
+					source.Read(buffer, index, chunk);
+
+					pos += chunk;
+					read += chunk;
+				}
+				catch
+				{
+					break;
+				}
+
+				if (IsDisposed || read >= length || pos >= Size)
+				{
+					break;
+				}
+			}
+
+			return read;
 		}
 	}
 }

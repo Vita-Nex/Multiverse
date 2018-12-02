@@ -13,35 +13,34 @@
 using System;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 #endregion
 
 namespace Multiverse
 {
 	public abstract class PortalTransport : IDisposable
 	{
-		private static readonly AutoResetEvent _OutSync;
+		private static readonly object _OutSync;
 
 		static PortalTransport()
 		{
-			_OutSync = new AutoResetEvent(true);
+			_OutSync = new object();
 		}
-
+		
 		private volatile bool _IsDisposed;
 		private volatile bool _IsDisposing;
 
-		private volatile AutoResetEvent _StartSync;
+		private volatile bool _IsRunning, _IsInitializing;
 
 		public abstract Socket Socket { get; }
 
 		public bool IsDisposed { get { return _IsDisposed; } }
 		public bool IsDisposing { get { return _IsDisposing; } }
 
-		public virtual bool IsAlive { get { return Socket != null && !IsDisposed; } }
+		public bool IsInitializing { get { return _IsInitializing; } }
+		public bool IsRunning { get { return _IsRunning; } }
 
-		public PortalTransport()
-		{
-			_StartSync = new AutoResetEvent(false);
-		}
+		public bool IsAlive { get { return Socket != null && !_IsDisposed; } }
 
 		public bool Start()
 		{
@@ -50,65 +49,39 @@ namespace Multiverse
 				return false;
 			}
 
-			try
+			if (_IsRunning)
 			{
-				if (ThreadPool.QueueUserWorkItem(Start))
-				{
-					return _StartSync != null && _StartSync.WaitOne();
-				}
-			}
-			catch (Exception e)
-			{
-				ToConsole("Start: Failed", e);
+				return true;
 			}
 
-			return false;
-		}
+			_IsInitializing = true;
 
-		private void Start(object state)
-		{
 			try
 			{
 				OnStart();
 			}
-			catch (Exception e)
+			finally
 			{
-				ToConsole("Start: Failed", e);
+				_IsInitializing = false;
 			}
 
-			if (_StartSync != null)
+			_IsRunning = true;
+
+			if (Socket != null && !_IsDisposed && !_IsDisposing)
 			{
-				_StartSync.Set();
-			}
-		}
-
-		protected abstract void OnStart();
-
-		public abstract bool Send(PortalPacket p);
-		public abstract bool SendExcept(PortalPacket p, ushort exceptID);
-		public abstract bool SendTarget(PortalPacket p, ushort targetID);
-
-		public bool CheckAlive()
-		{
-			return Portal.TryGet(CheckAlive, Portal.Ticks);
-		}
-
-		protected virtual bool CheckAlive(long ticks)
-		{
-			if (_IsDisposed)
-			{
-				return false;
-			}
-
-			if (Socket == null)
-			{
-				Dispose();
-				return false;
+				OnStarted();
 			}
 
 			return true;
 		}
 
+		protected abstract void OnStart();
+		protected abstract void OnStarted();
+
+		public abstract bool Send(PortalPacket p);
+		public abstract bool SendExcept(PortalPacket p, ushort exceptID);
+		public abstract bool SendTarget(PortalPacket p, ushort targetID);
+		
 		public void ToConsole(string message, params object[] args)
 		{
 			ToConsole(ConsoleColor.Yellow, message, args);
@@ -124,14 +97,10 @@ namespace Multiverse
 			{
 				ToConsole(ConsoleColor.Gray, message);
 			}
-
-			Portal.Trace(message, e);
 		}
 
 		public void ToConsole(ConsoleColor color, string message, params object[] args)
 		{
-			_OutSync.WaitOne();
-
 			var cc = Console.ForegroundColor;
 
 			Console.ForegroundColor = color;
@@ -146,8 +115,6 @@ namespace Multiverse
 			}
 
 			Console.ForegroundColor = cc;
-
-			_OutSync.Set();
 		}
 
 		public void Dispose()
@@ -165,18 +132,9 @@ namespace Multiverse
 
 			Portal.Try(OnDispose);
 
-			try
-			{
-				_StartSync.Close();
-				_StartSync.Dispose();
-			}
-			catch
-			{ }
-			finally
-			{
-				_StartSync = null;
-			}
-
+			_IsRunning = false;
+			_IsInitializing = false;
+			
 			_IsDisposing = false;
 		}
 
@@ -194,11 +152,33 @@ namespace Multiverse
 				return;
 			}
 
-			Portal.Try(s.Shutdown, SocketShutdown.Both);
-			Portal.Try(s.Disconnect, true);
+			try
+			{
+				s.Shutdown(SocketShutdown.Both);
+			}
+			catch
+			{ }
 
-			Portal.Try(s.Close);
-			Portal.Try(s.Dispose);
+			try
+			{
+				s.Disconnect(true);
+			}
+			catch
+			{ }
+
+			try
+			{
+				s.Close();
+			}
+			catch
+			{ }
+
+			try
+			{
+				s.Dispose();
+			}
+			catch
+			{ }
 		}
 	}
 }

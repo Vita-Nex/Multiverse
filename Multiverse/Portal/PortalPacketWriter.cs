@@ -28,23 +28,31 @@ namespace Multiverse
 		private static readonly Type _TypeOfUInt = typeof(UInt32);
 		private static readonly Type _TypeOfLong = typeof(Int64);
 		private static readonly Type _TypeOfULong = typeof(UInt64);
-
+		
 		public ushort PacketID { get; private set; }
 		public ushort ClientID { get; private set; }
 
 		public int Length { get { return (int)BaseStream.Length; } set { BaseStream.SetLength(value); } }
-
 		public int Position { get { return (int)BaseStream.Position; } set { BaseStream.Position = value; } }
-
+		
 		public PortalPacketWriter(ushort id, ushort clientID)
-			: base(new PortalStream(PortalPacket.MinSize), Encoding.UTF8)
+			: this(id, clientID, 0)
+		{ }
+
+		public PortalPacketWriter(ushort id, ushort clientID, int capacity)
+			: base(new PortalStream(PortalPacket.MinSize + Math.Max(0, capacity)), Encoding.UTF8)
 		{
 			PacketID = id;
 			ClientID = clientID;
 
 			Write(PacketID);
 			Write(ClientID);
-			Write(Length);
+			Write(Length + 4);
+		}
+
+		~PortalPacketWriter()
+		{
+			Dispose();
 		}
 
 		public void UpdateHeader(ushort? clientID, int? length)
@@ -66,8 +74,9 @@ namespace Multiverse
 
 			var offset = Position;
 
-			Position = 2;
+			Position = 0;
 
+			Write(PacketID);
 			Write(ClientID);
 			Write(Length);
 
@@ -191,6 +200,16 @@ namespace Multiverse
 		private void InternalWrite(string value)
 		{
 			base.Write(value ?? "\0");
+		}
+
+		public long WriteFromStream(Stream source, long offset, long length)
+		{
+			return ((PortalStream)BaseStream).WriteFromStream(source, offset, length);
+		}
+
+		public long WriteFromStream(Stream source, long length)
+		{
+			return ((PortalStream)BaseStream).WriteFromStream(source, length);
 		}
 
 		public void Trace()

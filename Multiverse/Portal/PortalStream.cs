@@ -12,6 +12,7 @@
 #region References
 using System;
 using System.IO;
+using System.Net.Sockets;
 #endregion
 
 namespace Multiverse
@@ -59,7 +60,9 @@ namespace Multiverse
 		public override bool CanRead { get { return _Readable; } }
 		public override bool CanWrite { get { return _Writable; } }
 		public override bool CanSeek { get { return _Seekable; } }
-
+		
+		public override bool CanTimeout { get { return false; } }
+		
 		public PortalStream()
 		{
 			_Buffer = new PortalBuffer();
@@ -287,6 +290,54 @@ namespace Multiverse
 					_Buffer[_Position++] = buffer[o];
 				}
 			}
+		}
+
+		public long ReadToStream(Stream dest, long offset, long length)
+		{
+			dest.Seek(offset, offset < 0 ? SeekOrigin.End : SeekOrigin.Begin);
+
+			return ReadToStream(dest, length);
+		}
+
+		public long ReadToStream(Stream dest, long length)
+		{
+			lock (_Buffer)
+			{
+				length = _Buffer.WriteToStream(dest, _Position, length);
+
+				_Position += length;
+
+				return length;
+			}
+		}
+
+		public long WriteFromStream(Stream source, long offset, long length)
+		{
+			source.Seek(offset, offset < 0 ? SeekOrigin.End : SeekOrigin.Begin);
+
+			return WriteFromStream(source, length);
+		}
+
+		public long WriteFromStream(Stream dest, long length)
+		{
+			lock (_Buffer)
+			{
+				length = _Buffer.ReadFromStream(dest, _Position, length);
+
+				_Position += length;
+
+				return length;
+			}
+		}
+
+		public long Send(Socket socket, long offset, long length)
+		{
+			return _Buffer.Send(socket, offset, length);
+		}
+
+		public long Receive(Socket socket, long offset, long length)
+		{
+			return _Buffer.Receive(socket, offset, length);
 		}
 	}
 }

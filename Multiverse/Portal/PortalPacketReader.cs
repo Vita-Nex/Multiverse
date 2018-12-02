@@ -51,11 +51,7 @@ namespace Multiverse
 
 		public int Length { get; private set; }
 
-		public int Position
-		{
-			get { return (int)BaseStream.Seek(0, SeekOrigin.Current); }
-			set { BaseStream.Seek(value, SeekOrigin.Begin); }
-		}
+		public int Position { get { return (int)BaseStream.Position; } set { BaseStream.Position = value; } }
 
 		public PortalPacketReader(PortalBuffer buffer)
 			: base(new PortalStream(buffer), Encoding.UTF8)
@@ -63,6 +59,11 @@ namespace Multiverse
 			PacketID = ReadUInt16();
 			ServerID = ReadUInt16();
 			Length = ReadInt32();
+		}
+
+		~PortalPacketReader()
+		{
+			Dispose();
 		}
 
 		public byte[] ReadToEnd()
@@ -155,6 +156,16 @@ namespace Multiverse
 			}
 
 			return value;
+		}
+
+		public long ReadToStream(Stream dest, long offset, long length)
+		{
+			return ((PortalStream)BaseStream).ReadToStream(dest, offset, length);
+		}
+
+		public long ReadToStream(Stream dest, long length)
+		{
+			return ((PortalStream)BaseStream).ReadToStream(dest, length);
 		}
 
 		public void Trace()

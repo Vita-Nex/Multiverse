@@ -33,12 +33,20 @@ namespace Multiverse
 
 			Portal.Context = PortalContext.Server;
 
-			Portal.ToConsole("Starting...");
-			Portal.Start();
-
-			while (!Closing && Portal.IsAlive)
+			while (!Closing)
 			{
-				Thread.Sleep(10);
+				if (Portal.IsEnabled && !Portal.IsAlive)
+				{
+					Portal.ToConsole("Starting...");
+
+					if (!Portal.Start())
+					{
+						Portal.ToConsole("Press any key to continue...");
+						Console.ReadKey();
+					}
+				}
+
+				Thread.Sleep(1);
 			}
 		}
 
@@ -72,10 +80,10 @@ namespace Multiverse
 
 					if (e.IsTerminating)
 					{
-						Close();
-
 						Portal.ToConsole("Press any key to exit...");
 						Console.ReadKey();
+
+						Close();
 					}
 				}
 				catch

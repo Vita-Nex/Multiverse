@@ -19,7 +19,7 @@ namespace Multiverse
 	{
 		public static readonly int MinSize = 8;
 
-		private static int _MaxSize = 1048576 * 32;
+		private static int _MaxSize = 1048576 * 8;
 
 		public static int MaxSize { get { return _MaxSize; } set { _MaxSize = Math.Max(MinSize, value); } }
 
@@ -32,7 +32,16 @@ namespace Multiverse
 
 		private volatile PortalPacketWriter _Stream;
 
-		protected PortalPacketWriter Stream { get { return _Stream; } }
+		protected PortalPacketWriter Stream
+		{
+			get
+			{
+				lock (_SyncRoot)
+				{
+					return _Stream;
+				}
+			}
+		}
 
 		protected PortalPacket(ushort packetID)
 		{
@@ -41,6 +50,15 @@ namespace Multiverse
 			ClientID = Portal.ClientID;
 
 			_Stream = new PortalPacketWriter(ID, ClientID);
+		}
+
+		protected PortalPacket(ushort packetID, int size)
+		{
+			ID = packetID;
+
+			ClientID = Portal.ClientID;
+
+			_Stream = new PortalPacketWriter(ID, ClientID, size);
 		}
 
 		~PortalPacket()

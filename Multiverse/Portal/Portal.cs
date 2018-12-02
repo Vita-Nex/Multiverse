@@ -14,7 +14,10 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 #endregion
 
 namespace Multiverse
@@ -59,12 +62,11 @@ namespace Multiverse
 				return (long)(DateTime.UtcNow.Ticks * (1000.0 / TimeSpan.TicksPerSecond));
 			}
 		}
-
-		public static event Action OnStart;
-		public static event Action OnStop;
-
+		
 		public static event Action<PortalClient> OnConnected;
 		public static event Action<PortalClient> OnDisposed;
+
+		public static Func<Socket, PortalClient> CreateClientHandler;
 
 		static Portal()
 		{
@@ -81,46 +83,44 @@ namespace Multiverse
 
 		public static void InvokeConnected(PortalClient client)
 		{
-			if (client != null && client.IsAlive && OnConnected != null)
+			if (client != null && OnConnected != null)
 			{
-				OnConnected(client);
+				ThreadPool.QueueUserWorkItem(InvokeConnected, client);
+			}
+		}
+
+		private static void InvokeConnected(object state)
+		{
+			if (state != null && OnConnected != null)
+			{
+				OnConnected((PortalClient)state);
 			}
 		}
 
 		public static void InvokeDisposed(PortalClient client)
 		{
-			if (client != null && (client.IsDisposing || client.IsDisposed) && OnDisposed != null)
+			if (client != null && OnDisposed != null)
 			{
-				OnDisposed(client);
+				ThreadPool.QueueUserWorkItem(InvokeDisposed, client);
+			}
+		}
+
+		private static void InvokeDisposed(object state)
+		{
+			if (state != null && OnDisposed != null)
+			{
+				OnDisposed((PortalClient)state);
 			}
 		}
 
 		private static void Configure()
 		{
-			if (!IsEnabled)
-			{
-				Stop();
-				return;
-			}
-
-			if (IsAlive)
+			if (IsAlive || !IsEnabled)
 			{
 				return;
 			}
 
-			Stop();
-
-			if (!IsEnabled)
-			{
-				return;
-			}
-
-			if (_Transport != null)
-			{
-				_Transport.Dispose();
-			}
-
-			PortalTransport t;
+			PortalTransport t = null;
 
 			if (IsServer)
 			{
@@ -128,11 +128,15 @@ namespace Multiverse
 			}
 			else if (IsClient)
 			{
-				t = new PortalClient();
-			}
-			else
-			{
-				t = null;
+				if (CreateClientHandler != null)
+				{
+					t = CreateClientHandler(null);
+				}
+
+				if (t == null)
+				{
+					t = new PortalClient();
+				}
 			}
 
 			_Transport = t;
@@ -147,40 +151,48 @@ namespace Multiverse
 				return false;
 			}
 
-			Exception e;
+			var t = Task.Factory.StartNew(Start, null);
 
-			if (!TryGet(_Transport.Start, out e))
+			do
 			{
-				ToConsole("Start: Failed", e);
+				if (_Transport == null || _Transport.IsDisposing || _Transport.IsDisposed)
+				{
+					return false;
+				}
 
+				if (_Transport.IsRunning)
+				{
+					return true;
+				}
+			}
+			while (!t.Wait(10));
+
+			return _Transport != null && !_Transport.IsDisposing && !_Transport.IsDisposed && _Transport.IsRunning;
+		}
+
+		private static void Start(object state)
+		{
+			if (_Transport == null || !_Transport.Start())
+			{
 				Stop();
 			}
-			else if (OnStart != null)
-			{
-				OnStart();
-			}
-
-			return IsAlive;
 		}
 
 		public static void Stop()
 		{
 			if (_Transport != null)
 			{
-				Try(_Transport.Dispose);
-
+				_Transport.Dispose();
 				_Transport = null;
-			}
-
-			if (OnStop != null)
-			{
-				OnStop();
 			}
 		}
 
 		public static void Restart()
 		{
 			Stop();
+
+			Thread.Sleep(100);
+
 			Start();
 		}
 
@@ -427,9 +439,29 @@ namespace Multiverse
 
 		public static void Trace(string message, Exception e)
 		{
-			File.AppendAllLines(
-				"PortalErrors.log",
-				new[] {DateTime.Now.ToString(), message, String.Empty, e.ToString(), String.Empty, String.Empty});
+			string[] lines;
+
+			if (e != null)
+			{
+				lines = new[] {DateTime.Now.ToString(), message, String.Empty, e.ToString(), String.Empty, String.Empty};
+			}
+			else
+			{
+				lines = new[] {DateTime.Now.ToString(), message, String.Empty, String.Empty};
+			}
+
+			using (var fs = new FileStream("PortalErrors.log", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite))
+			{
+				using (var log = new StreamWriter(fs))
+				{
+					foreach (var line in lines)
+					{
+						log.WriteLine(line ?? "\n");
+					}
+
+					log.Flush();
+				}
+			}
 		}
 
 		public static bool Try(Action o)
